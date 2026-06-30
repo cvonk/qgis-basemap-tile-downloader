@@ -63,7 +63,7 @@ Web ▸ WMS AOI Downloader…
 
 ## Q&A
 
-**Q: Why is my map sharp?**
+**Q: Why is my map blurry?**
 A: Verify that all the Resulution and Coordinate Reference Systems match your source.
 
 **Q: Why are some tiles missing?**
