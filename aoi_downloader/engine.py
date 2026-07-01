@@ -308,7 +308,17 @@ class TileQueue:
             has_queue = False
 
         if has_queue:
-            self.logger.info("Resuming existing queue (fingerprint=%s).", stored_fp)
+            # Re-queue any previously-failed tiles so a re-run recovers gaps left
+            # by transient server errors (the earlier run's 'done' tiles are kept).
+            requeued = self._c.execute(
+                "UPDATE tiles SET status='pending', attempts=0, last_error=NULL "
+                "WHERE status='failed'").rowcount
+            if requeued:
+                self.logger.info(
+                    "Resuming queue; re-queued %d previously-failed tile(s) for retry.",
+                    requeued)
+            else:
+                self.logger.info("Resuming existing queue (fingerprint=%s).", stored_fp)
             return
         self._c.execute("BEGIN")
         self._c.executemany(
