@@ -25,7 +25,7 @@ from qgis.gui import (
 
 from . import engine, tilemath
 
-SETTINGS_GROUP = "aoi_downloader"
+SETTINGS_GROUP = "basemap_tile_downloader"
 
 DEFAULT_TILE_PIXELS = 1024
 DEFAULT_RESOLUTION  = 0.5

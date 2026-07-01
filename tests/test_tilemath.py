@@ -2,7 +2,7 @@
 
 Run from the repo root:  pytest
 """
-from aoi_downloader import tilemath as tm
+from basemap_tile_downloader import tilemath as tm
 
 
 def test_resolution_halves_each_zoom():

@@ -98,7 +98,7 @@ def source_for(layer):
 # LOGGING
 # ─────────────────────────────────────────────
 def build_logger(work_dir):
-    logger = logging.getLogger("aoi_downloader")
+    logger = logging.getLogger("basemap_tile_downloader")
     logger.setLevel(logging.DEBUG)
     logger.handlers = []
 
@@ -129,7 +129,7 @@ def build_logger(work_dir):
 
 
 def release_logger():
-    log = logging.getLogger("aoi_downloader")
+    log = logging.getLogger("basemap_tile_downloader")
     for h in list(log.handlers):
         try: h.flush(); h.close()
         except Exception: pass

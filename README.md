@@ -21,10 +21,10 @@ Requires the GDAL Python bindings (bundled with QGIS). Written for QGIS 3.40.8.
 
 ## Installation
 
-The installable plugin lives in the **`aoi_downloader/`** sub-folder of this
-repository (the repo root holds the README, licence and screenshots).
+The installable plugin lives in the **`basemap_tile_downloader/`** sub-folder of
+this repository (the repo root holds the README, licence and screenshots).
 
-1. Copy the `aoi_downloader` folder into your QGIS plugins folder:
+1. Copy the `basemap_tile_downloader` folder into your QGIS plugins folder:
    `$env:APPDATA\QGIS\QGIS3\profiles\default\python\plugins\`
 2. In QGIS, open **Plugins ▸ Manage and Install Plugins ▸ Installed**.
 3. Check the box next to **Basemap Tile Downloader** to activate it.
@@ -146,7 +146,7 @@ It was written for QGIS 3.40.8.
 Yes — the source backend is auto-detected from the layer you pass:
 
 ```python
-from aoi_downloader import engine
+from basemap_tile_downloader import engine
 from qgis.core import QgsProject
 from qgis.utils import iface
 

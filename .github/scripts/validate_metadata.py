@@ -3,7 +3,7 @@
 import configparser
 import sys
 
-PATH = "aoi_downloader/metadata.txt"
+PATH = "basemap_tile_downloader/metadata.txt"
 REQUIRED = ["name", "qgisMinimumVersion", "description",
             "version", "author", "email"]
 

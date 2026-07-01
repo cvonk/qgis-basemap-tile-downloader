@@ -15,12 +15,12 @@ jobs:
 
       - name: Build plugin zip
         # git archive uses the committed tree, so no __pycache__/.pyc sneaks in.
-        # The zip contains a top-level aoi_downloader/ folder ready to drop into
-        # a QGIS plugins directory.
-        run: git archive --format=zip -o "aoi_downloader-${{ github.ref_name }}.zip" HEAD aoi_downloader
+        # The zip contains a top-level basemap_tile_downloader/ folder ready to
+        # drop into a QGIS plugins directory.
+        run: git archive --format=zip -o "basemap_tile_downloader-${{ github.ref_name }}.zip" HEAD basemap_tile_downloader
 
       - name: Publish GitHub release
         uses: softprops/action-gh-release@v2
         with:
-          files: aoi_downloader-*.zip
+          files: basemap_tile_downloader-*.zip
           generate_release_notes: true

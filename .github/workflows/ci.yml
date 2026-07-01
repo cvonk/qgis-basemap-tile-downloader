@@ -24,7 +24,7 @@ jobs:
       - name: Byte-compile the plugin
         # Catches syntax errors across every module without needing QGIS
         # (compileall does not import, so the qgis imports are never executed).
-        run: python -m compileall -q aoi_downloader
+        run: python -m compileall -q basemap_tile_downloader
 
       - name: Run unit tests
         run: pytest -q
