@@ -110,8 +110,10 @@ class AoiDialog(QDialog):
         # not surface "Draw on Canvas".
         self.extent_widget = QgsExtentWidget(None, QgsExtentWidget.CondensedStyle)
         if self._canvas is not None:
-            # Enables "Use Current Map Canvas Extent" and "Draw on Canvas".
-            self.extent_widget.setMapCanvas(self._canvas)
+            # Second arg = drawOnCanvasOption; pass it explicitly since the C++
+            # default (True) isn't applied through the binding, which otherwise
+            # hides "Draw on Canvas".
+            self.extent_widget.setMapCanvas(self._canvas, True)
         self.extent_widget.setOutputCrs(QgsProject.instance().crs())
         self.extent_widget.extentChanged.connect(self._update_estimate)
         self.extent_widget.extentChanged.connect(self._update_zoom_label)
