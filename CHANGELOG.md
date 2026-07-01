@@ -5,6 +5,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 ### Changed
+- **Renamed the plugin to "Basemap Tile Downloader"** (menu, metadata, log tab).
+  The Python package and repository names are unchanged.
 - **The download area is now a rectangular extent instead of an AOI polygon
   layer.** The dialog uses an extent selector (Calculate from Layer / Use
   Current Map Canvas Extent / Draw on Canvas), like QGIS's "Convert Map to

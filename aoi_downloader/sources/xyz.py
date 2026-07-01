@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""XYZ source backend for the AOI Downloader ({z}/{x}/{y} in Web Mercator)."""
+"""XYZ source backend for the Basemap Tile Downloader ({z}/{x}/{y} in Web Mercator)."""
 
 import urllib.parse
 

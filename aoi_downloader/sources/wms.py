@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""WMS source backend for the AOI Downloader (GetMap over an AOI bbox)."""
+"""WMS source backend for the Basemap Tile Downloader (GetMap over an extent)."""
 
 import urllib.parse
 import xml.etree.ElementTree as ET

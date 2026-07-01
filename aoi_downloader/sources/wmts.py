@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-WMTS source backend for the AOI Downloader.
+WMTS source backend for the Basemap Tile Downloader.
 
 Parses the WMTS GetCapabilities for the layer's TileMatrixSet (per-zoom
 scale / origin / tile size / matrix extent), works out which tiles cover the

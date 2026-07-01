@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""AOI Downloader – QGIS plugin entry point (WMS + XYZ)."""
+"""Basemap Tile Downloader – QGIS plugin entry point (WMS / WMTS / XYZ)."""
 
 
 def classFactory(iface):

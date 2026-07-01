@@ -1,21 +1,21 @@
-# AOI Downloader for QGIS
+# Basemap Tile Downloader for QGIS
 
 [![CI](https://github.com/cvonk/AOI-Downloader-for-QGIS/actions/workflows/ci.yml/badge.svg)](https://github.com/cvonk/AOI-Downloader-for-QGIS/actions/workflows/ci.yml)
 
 A QGIS plugin that exports a high-resolution GeoTIFF from a **WMS**, **WMTS**, or
-**XYZ** basemap, clipped to a polygon area of interest (AOI).
+**XYZ** basemap over a chosen rectangular extent.
 
 It:
 - Auto-detects whether the chosen layer is a WMS, WMTS, or XYZ tile source.
-- Tiles the request over the AOI — WMS `GetMap` at a chosen resolution/CRS, or
-  WMTS / Web-Mercator `{z}/{x}/{y}` tiles at a chosen zoom level.
+- Tiles the request over the extent — WMS `GetMap` at a chosen resolution/CRS,
+  or WMTS / Web-Mercator `{z}/{x}/{y}` tiles at a chosen zoom level.
 - Throttles requests adaptively (tuned per source type) and fetches tiles in
   parallel, with a configurable number of parallel downloads.
 - Tracks progress in a resumable SQLite queue, so an interrupted run continues
   where it left off, and a re-run retries any tiles that failed previously.
 - Georeferences each tile and mosaics them into a compressed, tiled GeoTIFF
   (with overviews), optionally reprojected to a chosen output CRS (selectable
-  resampling) and clipped to the AOI polygon, then loads it into the project.
+  resampling) and cropped to the exact extent, then loads it into the project.
 
 Requires the GDAL Python bindings (bundled with QGIS). Written for QGIS 3.40.8.
 
@@ -27,9 +27,9 @@ repository (the repo root holds the README, licence and screenshots).
 1. Copy the `aoi_downloader` folder into your QGIS plugins folder:
    `$env:APPDATA\QGIS\QGIS3\profiles\default\python\plugins\`
 2. In QGIS, open **Plugins ▸ Manage and Install Plugins ▸ Installed**.
-3. Check the box next to **AOI Downloader** to activate it.
+3. Check the box next to **Basemap Tile Downloader** to activate it.
 
-The tool then appears under **Web ▸ AOI Downloader…** and on the toolbar.
+The tool then appears under **Web ▸ Basemap Tile Downloader…** and on the toolbar.
 
 > If you are developing, `sync.ps1` in the parent folder mirrors every plugin
 > package here into the QGIS plugins folder; pair it with the *Plugin Reloader*
@@ -61,43 +61,31 @@ service's `GetCapabilities` URL and add a WMTS layer / tile matrix set.
 **XYZ** — **Layer ▸ Data Source Manager ▸ XYZ ▸ New**, give it a name and a
 `{z}/{x}/{y}` URL template.
 
-### 3. Define the area of interest
+### 3. Export to GeoTIFF
 
-Create a polygon layer to outline the region to export:
+Open **Web ▸ Basemap Tile Downloader…**. Pick the source layer (the dialog shows
+the fields for its type), choose the **extent to render**, then set the output.
 
-- **Layer ▸ Create Layer ▸ New Temporary Scratch Layer**
-  - **Name** – e.g. `Area of Interest (EPSG:32632)`
-  - **Geometry type** – Polygon
-  - **CRS** – your project CRS
+![Basemap Tile Downloader dialog](media/dialog.png)
 
-Then draw the boundary (e.g. roughly 10 × 10 km):
-
-1. Center the target area on the canvas and set the scale to about 1:30,000.
-2. Select the AOI layer in the **Layers** panel.
-3. Enable editing (the yellow pencil in the toolbar).
-4. Use **Add Polygon Feature** to draw the boundary: left-click to place each
-   corner, then right-click to finish.
-5. Turn editing off again and save the changes when prompted.
-
-### 4. Export to GeoTIFF
-
-Open **Web ▸ AOI Downloader…**. Pick the source layer — the dialog shows the
-fields for its type — and the AOI polygon, then set the output.
-
-![AOI Downloader dialog](media/dialog.png)
+The **Extent to render** selector works like QGIS's *Convert Map to Raster*
+dialog — set it from the dropdown:
+- **Calculate from Layer** – the bounding box of a layer,
+- **Use Current Map Canvas Extent** – the current view,
+- or type the min/max coordinates directly.
 
 **WMS example**
 
 | Setting | Example |
 | --- | --- |
 | Source layer | `Copertura regioni WMS` |
-| AOI polygon layer | `Area of Interest (EPSG:32632)` |
+| Extent to render | Current map canvas extent |
 | Tile size | `1024` |
 | Resolution | `0.5` |
 | Output CRS | `EPSG:32632` |
 | Reproject sampling | `Bilinear` (or Nearest / Cubic / None) |
-| Clip to AOI polygon | ☐ (tick to mask to the polygon shape) |
-| Parallel downloads | `2` (lower for strict servers) |
+| Crop output to the exact extent | ☐ |
+| Parallel downloads (Advanced) | `2` (lower for strict servers) |
 | Output | `C:\Users\you\output.tif` (or a temporary file) |
 
 **XYZ example**
@@ -105,12 +93,12 @@ fields for its type — and the AOI polygon, then set the output.
 | Setting | Example |
 | --- | --- |
 | Source layer | `OpenStreetMap` |
-| AOI polygon layer | `Area of Interest (EPSG:32632)` |
+| Extent to render | Current map canvas extent |
 | Zoom level | `18` (≈ 0.6 m/px) |
 | Output CRS | `EPSG:32632` |
 | Reproject sampling | `Bilinear` (or Nearest / Cubic / None) |
-| Clip to AOI polygon | ☐ (tick to mask to the polygon shape) |
-| Parallel downloads | `4` |
+| Crop output to the exact extent | ☐ |
+| Parallel downloads (Advanced) | `4` |
 | Output | `C:\Users\you\output.tif` (or a temporary file) |
 
 (A **WMTS** layer uses the same fields as XYZ — pick a **zoom level**.)
@@ -121,10 +109,11 @@ Notes:
   before starting, to avoid an accidental huge download.
 - **Reproject sampling: None** keeps the mosaic in its native CRS (no
   reprojection, no resampling).
-- **Clip to AOI polygon** masks the output to the polygon shape instead of the
-  rectangular tile extent.
-- **Parallel downloads** — lower it (1–2) for strict servers that reject many
-  simultaneous connections; WMS defaults to 2, XYZ/WMTS to 4.
+- **Crop output to the exact extent** trims the tile-aligned mosaic to the
+  precise extent rectangle.
+- **Parallel downloads** and **Maximum attempts per tile** are in the collapsible
+  **Advanced** section. Lower the parallel downloads (1–2) for strict servers
+  that reject many simultaneous connections; WMS defaults to 2, XYZ/WMTS to 4.
 
 Click **OK** to start. Progress is shown in the Task Manager, and the finished
 mosaic is added to the project automatically.
@@ -159,16 +148,19 @@ Yes — the source backend is auto-detected from the layer you pass:
 ```python
 from aoi_downloader import engine
 from qgis.core import QgsProject
+from qgis.utils import iface
 
 wms = QgsProject.instance().mapLayersByName("Copertura regioni WMS")[0]
-aoi = QgsProject.instance().mapLayersByName("Area of Interest (EPSG:32632)")[0]
+
+extent = iface.mapCanvas().extent()               # any QgsRectangle
+extent_crs = QgsProject.instance().crs().authid()
 
 # WMS: opts = {tile_pixels, resolution};  XYZ/WMTS: opts = {zoom}
-engine.run(layer=wms, aoi_layer=aoi,
+engine.run(layer=wms, extent=extent, extent_crs=extent_crs,
            opts={"tile_pixels": 1024, "resolution": 0.5},
            out_crs="EPSG:32632",
            resample="bilinear",            # near | bilinear | cubic | none
-           clip=True,                      # mask output to the AOI polygon
+           clip=True,                      # crop to the exact extent
            concurrency=2,                  # parallel tile fetches
            output_path=r"C:\Users\you\output.tif")  # or temporary=True for a temp file
 ```

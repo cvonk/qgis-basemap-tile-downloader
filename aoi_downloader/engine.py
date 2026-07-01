@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-engine.py – shared download engine for the AOI Downloader plugin
+engine.py – shared download engine for the Basemap Tile Downloader plugin
 ================================================================
 
 Source-agnostic machinery: blocking HTTP, adaptive throttle, a resumable SQLite
@@ -56,8 +56,8 @@ CONCURRENCY              = 4       # default parallel tile fetches; a source may
 
 CLEANUP_TILES_AFTER_MOSAIC = False
 WORK_SUBDIR_NAME = "aoi_download"
-LOG_TAB          = "AOI Downloader"
-TASK_DESC        = "AOI download"
+LOG_TAB          = "Basemap Tile Downloader"
+TASK_DESC        = "Basemap tile download"
 
 
 # ─────────────────────────────────────────────
@@ -474,7 +474,7 @@ class AoiDownloadTask(QgsTask):
 
     def _run_impl(self):
         logger = self.logger
-        logger.info("=== AOI Download (%s) starting ===", self._source.SOURCE_NAME)
+        logger.info("=== Basemap tile download (%s) starting ===", self._source.SOURCE_NAME)
         if gdal is None:
             raise DownloaderError("GDAL bindings unavailable; cannot run.")
 
@@ -674,9 +674,9 @@ def run(layer=None, extent=None, extent_crs=None, opts=None, out_crs=None,
     """
     for t in QgsApplication.taskManager().activeTasks():
         if t.description() == TASK_DESC:
-            msg = ("An 'AOI download' task is already running; not starting "
+            msg = ("A 'Basemap tile download' task is already running; not starting "
                    "another. Cancel it in the Task Manager first to restart.")
-            print(f"[AOI Downloader] {msg}")
+            print(f"[Basemap Tile Downloader] {msg}")
             QgsMessageLog.logMessage(msg, LOG_TAB, Qgis.Warning)
             return t
 
@@ -684,13 +684,13 @@ def run(layer=None, extent=None, extent_crs=None, opts=None, out_crs=None,
     if source is None:
         msg = "Selected layer is not a recognised WMS/WMTS/XYZ tile layer."
         QgsMessageLog.logMessage(msg, LOG_TAB, Qgis.Critical)
-        print(f"[AOI Downloader] ERROR: {msg}")
+        print(f"[Basemap Tile Downloader] ERROR: {msg}")
         return None
 
     if extent is None or extent.isEmpty():
         msg = "No extent to download."
         QgsMessageLog.logMessage(msg, LOG_TAB, Qgis.Critical)
-        print(f"[AOI Downloader] ERROR: {msg}")
+        print(f"[Basemap Tile Downloader] ERROR: {msg}")
         return None
     aoi_crs = extent_crs or QgsProject.instance().crs().authid()
     aoi_wkt = QgsGeometry.fromRect(extent).asWkt()
@@ -699,7 +699,7 @@ def run(layer=None, extent=None, extent_crs=None, opts=None, out_crs=None,
         params = source.extract_params(layer)
     except DownloaderError as e:
         QgsMessageLog.logMessage(str(e), LOG_TAB, Qgis.Critical)
-        print(f"[AOI Downloader] ERROR: {e}")
+        print(f"[Basemap Tile Downloader] ERROR: {e}")
         return None
 
     opts = opts or {}
@@ -714,8 +714,8 @@ def run(layer=None, extent=None, extent_crs=None, opts=None, out_crs=None,
         output_path = QgsProcessingUtils.generateTempFilename(
             f"aoi_mosaic_{datetime.now().strftime('%Y%m%d_%H%M%S')}.tif")
 
-    print(f"[AOI Downloader] Source : {source.SOURCE_NAME}")
-    print(f"[AOI Downloader] Native : {native}   Output CRS: {out_crs}")
+    print(f"[Basemap Tile Downloader] Source : {source.SOURCE_NAME}")
+    print(f"[Basemap Tile Downloader] Native : {native}   Output CRS: {out_crs}")
 
     conc     = int(concurrency) if concurrency else getattr(source, "CONCURRENCY", CONCURRENCY)
     attempts = int(max_attempts) if max_attempts else MAX_ATTEMPTS_PER_TILE
@@ -732,14 +732,14 @@ def run(layer=None, extent=None, extent_crs=None, opts=None, out_crs=None,
             if lyr.isValid():
                 QgsProject.instance().addMapLayer(lyr)
                 loaded = True
-                print(f"[AOI Downloader] Mosaic loaded: {task.result_tif_path}")
+                print(f"[Basemap Tile Downloader] Mosaic loaded: {task.result_tif_path}")
             else:
                 msg = f"Mosaic file invalid: {task.result_tif_path}"
-                print(f"[AOI Downloader] WARNING: {msg}")
+                print(f"[Basemap Tile Downloader] WARNING: {msg}")
                 QgsMessageLog.logMessage(msg, LOG_TAB, Qgis.Critical)
         elif not success:
             msg = str(task.exception) if task.exception else "Task failed."
-            print(f"[AOI Downloader] FAILED: {msg}")
+            print(f"[Basemap Tile Downloader] FAILED: {msg}")
             QgsMessageLog.logMessage(f"Task failed: {msg}", LOG_TAB, Qgis.Critical)
 
         if callable(on_finished):
@@ -758,6 +758,6 @@ def run(layer=None, extent=None, extent_crs=None, opts=None, out_crs=None,
     task.taskCompleted.connect(lambda: _finished(True))
     task.taskTerminated.connect(lambda: _finished(False))
     QgsApplication.taskManager().addTask(task)
-    print("[AOI Downloader] Task queued. Watch the Task Manager panel and "
+    print("[Basemap Tile Downloader] Task queued. Watch the Task Manager panel and "
           f"{os.path.join(task.work_dir, 'download.log')}")
     return task

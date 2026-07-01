@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-AOI Downloader – parameter dialog.
+Basemap Tile Downloader – parameter dialog.
 
 One layer combo (WMS + XYZ tile layers). The source type is auto-detected from
 the chosen layer, and the relevant parameter fields are shown: tile size +
@@ -89,7 +89,7 @@ class AoiDialog(QDialog):
     def __init__(self, canvas=None, parent=None):
         super().__init__(parent)
         self._canvas = canvas
-        self.setWindowTitle("AOI Downloader")
+        self.setWindowTitle("Basemap Tile Downloader")
         self.setMinimumWidth(500)
         self._last_source = None
 

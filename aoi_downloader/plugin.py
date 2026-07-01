@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-AOI Downloader – plugin glue.
+Basemap Tile Downloader – plugin glue.
 
 Adds a menu entry (+ toolbar button), shows the source-aware dialog, then hands
 off to engine.run() which auto-detects the WMS/XYZ backend.
@@ -16,7 +16,7 @@ from . import engine
 
 # "web" -> Web menu (convention for web-service tools); "plugins" -> Plugins menu
 MENU = "web"
-MENU_TITLE = "AOI Downloader"
+MENU_TITLE = "Basemap Tile Downloader"
 
 
 class AoiDownloaderPlugin:
@@ -27,7 +27,7 @@ class AoiDownloaderPlugin:
 
     def initGui(self):
         self.action = QAction(
-            QIcon(self._icon_path), "AOI Downloader…", self.iface.mainWindow())
+            QIcon(self._icon_path), "Basemap Tile Downloader…", self.iface.mainWindow())
         self.action.triggered.connect(self.show_dialog)
         self.iface.addToolBarIcon(self.action)
         if MENU == "web":
@@ -67,7 +67,7 @@ class AoiDownloaderPlugin:
             self.iface.messageBar().pushInfo(
                 MENU_TITLE, "Download started — watch the Task Manager panel.")
         except Exception as e:
-            QgsMessageLog.logMessage(str(e), "AOI Downloader", Qgis.Critical)
+            QgsMessageLog.logMessage(str(e), "Basemap Tile Downloader", Qgis.Critical)
             self.iface.messageBar().pushCritical(MENU_TITLE, str(e))
 
     def _on_run_finished(self, result):
