@@ -9,12 +9,13 @@ It:
 - Auto-detects whether the chosen layer is a WMS or an XYZ tile source.
 - Tiles the request over the AOI — WMS `GetMap` at a chosen resolution/CRS, or
   Web-Mercator `{z}/{x}/{y}` at a chosen zoom level.
-- Throttles requests adaptively to stay within the server's rate limits.
+- Throttles requests adaptively (tuned per source type) and fetches tiles in
+  parallel, staying fast without overloading the server.
 - Tracks progress in a resumable SQLite queue, so an interrupted run continues
   where it left off.
 - Georeferences each tile and mosaics them into a compressed, tiled GeoTIFF
-  (with overviews), optionally reprojected to a chosen output CRS, then loads it
-  into the project.
+  (with overviews), optionally reprojected to a chosen output CRS with a
+  selectable resampling method, then loads it into the project.
 
 Requires the GDAL Python bindings (bundled with QGIS). Written for QGIS 3.40.8.
 
@@ -40,7 +41,8 @@ The tool then appears under **Web ▸ AOI Downloader…** and on the toolbar.
 
 Set the project CRS to suit your source by clicking the EPSG code in the
 bottom-right of the window. WMS is requested in that CRS; XYZ is always fetched
-in EPSG:3857 and reprojected to the output CRS you pick in the dialog.
+in EPSG:3857 and reprojected to the output CRS you pick in the dialog — or left
+in EPSG:3857 if you choose **None** for the resampling.
 (For example, **EPSG:32632** for an Italian UTM-32 source.)
 
 ### 2. Add the basemap
@@ -90,6 +92,7 @@ fields for its type — and the AOI polygon, then set the output.
 | Tile size | `1024` |
 | Resolution | `0.5` |
 | Output CRS | `EPSG:32632` |
+| Reproject sampling | `Bilinear` (or Nearest / Cubic / None) |
 | Output | `C:\Users\you\output.tif` (or a temporary file) |
 
 **XYZ example**
@@ -100,7 +103,13 @@ fields for its type — and the AOI polygon, then set the output.
 | AOI polygon layer | `Area of Interest (EPSG:32632)` |
 | Zoom level | `18` (≈ 0.6 m/px) |
 | Output CRS | `EPSG:32632` |
+| Reproject sampling | `Bilinear` (or Nearest / Cubic / None) |
 | Output | `C:\Users\you\output.tif` (or a temporary file) |
+
+The dialog shows a live tile-count estimate as you adjust the settings; above
+about 5,000 tiles it asks for confirmation before starting, to avoid an
+accidental huge download. Choosing **None** for the resampling keeps the mosaic
+in its native CRS (no reprojection).
 
 Click **OK** to start. Progress is shown in the Task Manager, and the finished
 mosaic is added to the project automatically.
@@ -134,7 +143,8 @@ aoi = QgsProject.instance().mapLayersByName("Area of Interest (EPSG:32632)")[0]
 engine.run(layer=wms, aoi_layer=aoi,
            opts={"tile_pixels": 1024, "resolution": 0.5},
            out_crs="EPSG:32632",
-           output_path=r"C:\Users\you\output.tif")
+           resample="bilinear",            # near | bilinear | cubic | none
+           output_path=r"C:\Users\you\output.tif")  # or temporary=True for a temp file
 ```
 
 ## Licence
