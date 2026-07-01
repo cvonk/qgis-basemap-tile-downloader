@@ -20,7 +20,7 @@ from qgis.core import (
 )
 from qgis.gui import (
     QgsMapLayerComboBox, QgsProjectionSelectionWidget, QgsCollapsibleGroupBox,
-    QgsExtentWidget,
+    QgsExtentWidget, QgsMapToolExtent,
 )
 
 from . import engine, tilemath
@@ -89,6 +89,8 @@ class AoiDialog(QDialog):
     def __init__(self, canvas=None, parent=None):
         super().__init__(parent)
         self._canvas = canvas
+        self._draw_tool = None
+        self._prev_tool = None
         self.setWindowTitle("AOI Downloader")
         self.setMinimumWidth(500)
         self._last_source = None
@@ -110,16 +112,26 @@ class AoiDialog(QDialog):
         # not surface "Draw on Canvas".
         self.extent_widget = QgsExtentWidget(None, QgsExtentWidget.CondensedStyle)
         if self._canvas is not None:
-            # Second arg = drawOnCanvasOption; pass it explicitly since the C++
-            # default (True) isn't applied through the binding, which otherwise
-            # hides "Draw on Canvas".
             self.extent_widget.setMapCanvas(self._canvas, True)
         self.extent_widget.setOutputCrs(QgsProject.instance().crs())
         self.extent_widget.extentChanged.connect(self._update_estimate)
         self.extent_widget.extentChanged.connect(self._update_zoom_label)
-        # Hide this dialog while the user draws an extent on the canvas.
         self.extent_widget.toggleDialogVisibility.connect(self.setVisible)
-        form.addRow("Extent to render:", self.extent_widget)
+
+        # The widget's built-in "Draw on Canvas" option isn't exposed in every
+        # QGIS build, so provide our own draw button beside it.
+        self.draw_btn = QToolButton()
+        self.draw_btn.setText("Draw…")
+        self.draw_btn.setToolTip("Draw the extent rectangle on the map canvas")
+        self.draw_btn.setEnabled(self._canvas is not None)
+        self.draw_btn.clicked.connect(self._draw_extent_on_canvas)
+
+        extent_row = QWidget()
+        erl = QHBoxLayout(extent_row)
+        erl.setContentsMargins(0, 0, 0, 0); erl.setSpacing(2)
+        erl.addWidget(self.extent_widget, 1)
+        erl.addWidget(self.draw_btn)
+        form.addRow("Extent to render:", extent_row)
 
         # WMS-only rows ------------------------------------------------------
         self.tile_lbl  = QLabel("Tile size (px):")
@@ -260,6 +272,29 @@ class AoiDialog(QDialog):
                 f"at the AOI (~{lat:.1f}°)")
 
     # ── tile-count estimate ───────────────────────────────────────────────────
+    # ── draw extent on canvas ─────────────────────────────────────────────────
+    def _draw_extent_on_canvas(self):
+        if self._canvas is None:
+            return
+        if self._draw_tool is None:
+            self._draw_tool = QgsMapToolExtent(self._canvas)
+            self._draw_tool.extentChanged.connect(self._on_extent_drawn)
+        self._prev_tool = self._canvas.mapTool()
+        self._canvas.setMapTool(self._draw_tool)
+        self.hide()                       # let the user interact with the canvas
+
+    def _on_extent_drawn(self, rect):
+        try:
+            if rect is not None and not rect.isEmpty():
+                crs = self._canvas.mapSettings().destinationCrs()
+                self.extent_widget.setOutputExtentFromUser(rect, crs)
+        finally:
+            if self._prev_tool is not None:
+                self._canvas.setMapTool(self._prev_tool)
+            self.show()
+            self.raise_()
+            self.activateWindow()
+
     def _extent_bbox_in(self, target_crs):
         """The chosen extent reprojected to target_crs, or None if not set."""
         if not self.extent_widget.isValid():
