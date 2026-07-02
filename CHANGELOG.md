@@ -4,6 +4,10 @@ All notable changes to this project are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
+### Added
+- The dialog title bar now shows the plugin version (from metadata.txt, e.g.
+  "Basemap Tile Downloader — v1.4.0"). When run from a git checkout it also
+  appends the short commit hash.
 
 ## [1.4.0] - 2026-07-01
 ### Fixed

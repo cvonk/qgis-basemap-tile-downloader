@@ -8,7 +8,10 @@ relevant parameter fields are shown: tile size + resolution for WMS and local
 rasters, zoom level for XYZ/WMTS.
 """
 
+import configparser
 import math
+import os
+import subprocess
 
 from qgis.PyQt.QtWidgets import (
     QDialog, QFormLayout, QVBoxLayout, QHBoxLayout, QDialogButtonBox,
@@ -36,6 +39,39 @@ DEFAULT_MAX_ATTEMPTS = 6
 
 # Ask for confirmation above this estimated tile count.
 WARN_TILE_COUNT = 5000
+
+_PLUGIN_DIR = os.path.dirname(__file__)
+
+
+def _plugin_version():
+    """Version string from metadata.txt (bundled with the plugin) — matches the
+    released git tag. Empty string if it can't be read."""
+    try:
+        cp = configparser.ConfigParser(interpolation=None)   # tolerate % in values
+        cp.read(os.path.join(_PLUGIN_DIR, "metadata.txt"), encoding="utf-8")
+        return cp.get("general", "version", fallback="").strip()
+    except Exception:
+        return ""
+
+
+def _git_short_hash():
+    """Short commit hash if the plugin is running from a git checkout (dev), else
+    "". An installed plugin has no .git, so this is normally empty."""
+    try:
+        out = subprocess.run(
+            ["git", "-C", _PLUGIN_DIR, "rev-parse", "--short", "HEAD"],
+            capture_output=True, text=True, timeout=2,
+            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+        return out.stdout.strip() if out.returncode == 0 else ""
+    except Exception:
+        return ""
+
+
+def _window_title():
+    ver  = _plugin_version()
+    sha  = _git_short_hash()
+    tag  = " ".join(p for p in (f"v{ver}" if ver else "", f"({sha})" if sha else "") if p)
+    return f"Basemap Tile Downloader — {tag}" if tag else "Basemap Tile Downloader"
 
 
 class OutputDestinationWidget(QWidget):
@@ -90,7 +126,7 @@ class BasemapTileDialog(QDialog):
     def __init__(self, canvas=None, parent=None):
         super().__init__(parent)
         self._canvas = canvas
-        self.setWindowTitle("Basemap Tile Downloader")
+        self.setWindowTitle(_window_title())
         self.setMinimumWidth(500)
         self._last_source = None
 
