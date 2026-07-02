@@ -162,6 +162,17 @@ server cooperates. If a specific server keeps failing many parallel requests,
 lower **Parallel downloads** (to 1–2). For XYZ, `404`/`204` tiles are treated as
 legitimate gaps (no data at that tile).
 
+If the *same* tiles keep failing no matter how often you re-run, open
+`download.log` (in the `btd_cache/` folder next to your project) and read the
+per-tile errors: the service may simply not have data for that area. A WMS
+`ServiceException` such as *"Unable to access file … tile_33_12.shp"*, or errors
+confined to one part of the extent, usually mean the provider can't serve that
+region — not a transient glitch, so retrying won't help. Often it is one
+sublayer that doesn't cover your whole extent (e.g. an adjacent UTM-zone layer):
+recreate the WMS layer requesting only the sublayer that covers your area, or
+shrink the extent to the covered region. Note the log is rewritten on each run,
+so copy it before re-running if you want to keep the evidence.
+
 **A run failed with a WMS `ServiceException` about a file it can't open.**
 That's the *provider's* server failing to read its own data (often intermittent)
 — not a plugin or network problem on your side. Wait and re-run; the failed
