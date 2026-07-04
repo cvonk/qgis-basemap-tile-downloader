@@ -769,6 +769,12 @@ class BasemapTileDownloadTask(QgsTask):
                             logger.info("Checkpoint %d/%d (done=%d, failed=%d)",
                                         done_n, total, done_count, failed_count)
 
+            # The fetch phase is over (drained, cancelled, or circuit-broken).
+            # Bump progress to 100% now so the task bar doesn't sit frozen at the
+            # last fetch percentage (e.g. 93%) through the mosaic-build step,
+            # which reports no progress of its own and can take a while.
+            self.setProgress(100.0)
+
             # Always mosaic what we have — even on cancel — so the gaps show which
             # tiles are missing. Only bail if there is literally nothing to build.
             cancelled = self.isCanceled()

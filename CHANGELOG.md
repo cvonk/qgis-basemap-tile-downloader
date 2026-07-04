@@ -5,6 +5,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+## [1.4.7] - 2026-07-04
+### Fixed
+- The task progress bar no longer sits frozen at the last fetch percentage
+  (e.g. 93%) while the mosaic is built — including after a **cancel**, where the
+  partial-mosaic build (VRT → Warp/Translate → overviews) can take a while and
+  reports no progress of its own. Progress now jumps to 100% the moment the
+  fetch phase ends and clears cleanly once finalization completes.
+
 ## [1.4.6] - 2026-07-03
 ### Fixed
 - A resumed run no longer grinds for hours when a provider refuses a block of
