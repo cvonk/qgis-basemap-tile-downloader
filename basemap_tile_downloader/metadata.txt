@@ -3,7 +3,7 @@ name=Basemap Tile Downloader
 qgisMinimumVersion=3.40.8
 description=Download a WMS, WMTS, or XYZ basemap over an extent and mosaic it into a GeoTIFF.
 about=Auto-detects whether the chosen layer is a WMS, WMTS, or XYZ tile source. Tiles the request over a chosen extent (WMS GetMap at a chosen resolution/CRS, or WMTS / Web-Mercator {z}/{x}/{y} at a chosen zoom), downloads with adaptive throttling and a resumable SQLite work queue, georeferences each tile, and builds a compressed, tiled GeoTIFF mosaic (with overviews) using GDAL. Optionally reprojects to a chosen output CRS and crops to the exact extent. Requires the GDAL Python bindings. For personal and educational use only — respect each provider's Terms of Service and usage limits.
-version=1.4.7
+version=1.4.8
 author=Coert Vonk
 email=coert.vonk@gmail.com
 tracker=https://github.com/cvonk/qgis-basemap-tile-downloader/issues
@@ -14,7 +14,12 @@ experimental=False
 deprecated=False
 category=Raster
 tags=wms,wmts,xyz,tiles,download,raster,mosaic,gdal,basemap,orthophoto,aoi,web mercator
-changelog=1.4.7 - The task progress bar no longer sits frozen at the last
+changelog=1.4.8 - Renamed the cache folder btd_cache/ to __btdcache__/
+    (Python __pycache__ style). Clearer mosaic-build error messages. The WMTS
+    zoom control shows a tile-matrix index instead of a misleading m/px figure.
+    README refreshed (Advanced back-off/give-up options, circuit breaker, log
+    panel, sync.ps1).
+    1.4.7 - The task progress bar no longer sits frozen at the last
     fetch percentage (e.g. 93%) while the mosaic is built, including after a
     cancel. It jumps to 100% when the fetch phase ends and clears once done.
     1.4.6 - A resumed run no longer grinds for hours when a provider

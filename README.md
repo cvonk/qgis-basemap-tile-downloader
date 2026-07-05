@@ -43,9 +43,11 @@ this repository (the repo root holds the README, licence and screenshots).
 
 The tool then appears under **Raster ▸ Basemap Tile Downloader…** and on the toolbar.
 
-> If you are developing, `sync.ps1` in the parent folder mirrors every plugin
-> package here into the QGIS plugins folder; pair it with the *Plugin Reloader*
-> plugin.
+> If you are developing, run `sync.ps1` in the repo root (`pwsh -File sync.ps1`)
+> to mirror this plugin into your QGIS plugins folder; pair it with the *Plugin
+> Reloader* plugin. (The script finds any plugin package — a folder with a
+> `metadata.txt` — under its own directory, so it also works from a parent
+> folder holding several plugin repos.)
 
 ## Usage
 
@@ -144,17 +146,27 @@ Notes:
   reprojection, no resampling).
 - **Crop output to the exact extent** trims the tile-aligned mosaic to the
   precise extent rectangle.
-- **Parallel downloads**, **Maximum attempts per tile** and **Minimum delay
-  between requests** are in the collapsible **Advanced** section. Lower the
-  parallel downloads (1–2) for strict servers that reject many simultaneous
-  connections; WMS defaults to 2, XYZ/WMTS to 4. The **minimum delay** (default
-  0 s) is a floor on the pace — raise it (e.g. 2 s) to pin a known-good rate for
-  a strict server; at 0 the adaptive throttle sets the pace on its own.
+- The collapsible **Advanced** section holds the tuning knobs:
+  - **Parallel downloads** — lower it (1–2) for strict servers that reject many
+    simultaneous connections; WMS defaults to 2, XYZ/WMTS to 4.
+  - **Maximum attempts per tile** — how many times a tile is retried before it is
+    marked failed.
+  - **Minimum delay between requests** (default 0 s) — a floor on the pace; raise
+    it (e.g. 2 s) to pin a known-good rate for a strict server. At 0 the adaptive
+    throttle sets the pace on its own.
+  - **Back-off cap** (default 30 s) — the longest the adaptive throttle will wait
+    between requests while a server is throttling/erroring. Lower it to retry
+    sooner (more aggressive); raise it to be gentler.
+  - **Give up after (server errors in a row)** (default 30) — stop the run when
+    this many requests in a row fail with no success (a server refusing a block
+    of tiles), then build a partial mosaic from what downloaded and leave the
+    rest for a re-run. Set it to 0 (“Never”) to keep only the per-tile limit.
 - If you **cancel** a run, the mosaic is still built from whatever downloaded so
   far (with gaps where tiles are missing), and re-running fills in the rest.
 
-Click **OK** to start. Progress is shown in the Task Manager, and the finished
-mosaic is added to the project automatically.
+Click **OK** to start. Progress is shown in the Task Manager, the live run log
+opens in the **Log Messages** panel (the *Basemap Tile Downloader* tab), and the
+finished mosaic is added to the project automatically.
 
 ## Q & A
 
@@ -180,8 +192,14 @@ server cooperates. If a specific server keeps failing many parallel requests,
 lower **Parallel downloads** (to 1–2). For XYZ, `404`/`204` tiles are treated as
 legitimate gaps (no data at that tile).
 
+If a server refuses a whole block of tiles and keeps failing every request, the
+run **stops early** rather than grinding for hours (“Server unavailable — stopped
+early…”): it builds a partial mosaic from what downloaded and leaves the rest to
+a re-run. You can tune when this kicks in with **Give up after** / **Back-off
+cap** in the Advanced section (see above).
+
 If the *same* tiles keep failing no matter how often you re-run, open
-`download.log` (in the `btd_cache/` folder next to your project) and read the
+`download.log` (in the `__btdcache__/` folder next to your project) and read the
 per-tile errors: the service may simply not have data for that area. A WMS
 `ServiceException` such as *"Unable to access file … tile_33_12.shp"*, or errors
 confined to one part of the extent, usually mean the provider can't serve that
@@ -229,6 +247,8 @@ engine.run(layer=wms, extent=extent, extent_crs=extent_crs,
            clip=True,                      # crop to the exact extent
            concurrency=2,                  # parallel tile fetches
            min_delay=0,                    # floor (s) on the pace; 0 = adaptive
+           backoff_cap=30,                 # s; adaptive back-off ceiling
+           giveup_after=30,                # consecutive failures → stop; 0 = never
            output_path=r"C:\Users\you\output.tif")  # or temporary=True for a temp file
 ```
 

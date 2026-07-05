@@ -23,7 +23,7 @@ A "source" module exposes:
 import os, json, sqlite3, logging, time, traceback, hashlib, uuid, configparser
 from collections import deque
 from concurrent.futures import ThreadPoolExecutor, wait, FIRST_COMPLETED
-from datetime import datetime
+from datetime import datetime, timezone
 
 from qgis.PyQt.QtCore   import QUrl
 from qgis.PyQt.QtNetwork import QNetworkRequest
@@ -72,7 +72,7 @@ CONCURRENCY              = 4       # default parallel tile fetches; a source may
                                    # dialog lets the user set it per run
 
 CLEANUP_TILES_AFTER_MOSAIC = False
-WORK_SUBDIR_NAME = "btd_cache"
+WORK_SUBDIR_NAME = "__btdcache__"
 LOG_TAB          = "Basemap Tile Downloader"
 TASK_DESC        = "Basemap tile download"
 
@@ -439,16 +439,16 @@ class TileQueue:
 
     def mark_attempt(self, tid, attempts):
         self._c.execute("UPDATE tiles SET attempts=?,updated_at=? WHERE id=?",
-                        (attempts, datetime.utcnow().isoformat(), tid))
+                        (attempts, datetime.now(timezone.utc).isoformat(), tid))
 
     def mark_done(self, tid, path):
         self._c.execute(
             "UPDATE tiles SET status='done',file_path=?,last_error=NULL,updated_at=? WHERE id=?",
-            (path, datetime.utcnow().isoformat(), tid))
+            (path, datetime.now(timezone.utc).isoformat(), tid))
 
     def mark_failed(self, tid, err):
         self._c.execute("UPDATE tiles SET status='failed',last_error=?,updated_at=? WHERE id=?",
-                        (str(err)[:2000], datetime.utcnow().isoformat(), tid))
+                        (str(err)[:2000], datetime.now(timezone.utc).isoformat(), tid))
 
     def done_file_paths(self):
         return [r[0] for r in self._c.execute(
@@ -498,9 +498,13 @@ def build_mosaic(tile_paths, work_dir, logger, tif_path, native_crs, out_crs,
     elif nodata is not None:
         vrt_opts["srcNodata"] = nodata
         vrt_opts["VRTNodata"] = nodata
-    ds = gdal.BuildVRT(vrt, tile_paths, options=gdal.BuildVRTOptions(**vrt_opts))
-    if ds is None:
-        raise DownloaderError("gdal.BuildVRT failed.")
+    # gdal.UseExceptions() is on, so a GDAL failure raises rather than returning
+    # None; wrap the calls so it surfaces as a clear DownloaderError (the run's
+    # generic handler would otherwise report a raw, cryptic GDAL message).
+    try:
+        ds = gdal.BuildVRT(vrt, tile_paths, options=gdal.BuildVRTOptions(**vrt_opts))
+    except Exception as e:
+        raise DownloaderError(f"gdal.BuildVRT failed: {e}")
     ds = None
 
     creation = ["COMPRESS=DEFLATE", "PREDICTOR=2", "TILED=YES",
@@ -509,23 +513,24 @@ def build_mosaic(tile_paths, work_dir, logger, tif_path, native_crs, out_crs,
     reproject = (out_crs and native_crs and out_crs.upper() != native_crs.upper())
     warp_alg  = "near" if resample == "none" else resample
     # A cutline must be applied with Warp, so warp even when not reprojecting.
-    if reproject or cutline:
-        warp_kwargs = dict(format="GTiff", dstSRS=out_crs, resampleAlg=warp_alg,
-                           creationOptions=creation, multithread=True)
-        if not add_alpha and nodata is not None:
-            warp_kwargs.update(srcNodata=nodata, dstNodata=nodata)
-        if cutline:
-            warp_kwargs.update(cutlineDSName=cutline, cropToCutline=True)
-        logger.info("Warp VRT → %s (%s → %s, resample=%s%s)",
-                    tif, native_crs, out_crs, warp_alg,
-                    ", clip=extent" if cutline else "")
-        ds = gdal.Warp(tif, vrt, options=gdal.WarpOptions(**warp_kwargs))
-    else:
-        logger.info("Translate VRT → %s (%s)", tif, native_crs)
-        ds = gdal.Translate(tif, vrt, options=gdal.TranslateOptions(
-            format="GTiff", creationOptions=creation))
-    if ds is None:
-        raise DownloaderError("Mosaic creation failed.")
+    try:
+        if reproject or cutline:
+            warp_kwargs = dict(format="GTiff", dstSRS=out_crs, resampleAlg=warp_alg,
+                               creationOptions=creation, multithread=True)
+            if not add_alpha and nodata is not None:
+                warp_kwargs.update(srcNodata=nodata, dstNodata=nodata)
+            if cutline:
+                warp_kwargs.update(cutlineDSName=cutline, cropToCutline=True)
+            logger.info("Warp VRT → %s (%s → %s, resample=%s%s)",
+                        tif, native_crs, out_crs, warp_alg,
+                        ", clip=extent" if cutline else "")
+            ds = gdal.Warp(tif, vrt, options=gdal.WarpOptions(**warp_kwargs))
+        else:
+            logger.info("Translate VRT → %s (%s)", tif, native_crs)
+            ds = gdal.Translate(tif, vrt, options=gdal.TranslateOptions(
+                format="GTiff", creationOptions=creation))
+    except Exception as e:
+        raise DownloaderError(f"Mosaic creation failed: {e}")
     ds.BuildOverviews("AVERAGE", [2, 4, 8, 16])
     ds = None
     return vrt, tif

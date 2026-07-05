@@ -42,6 +42,9 @@ def extract_params(layer):
     def _int(v, default):
         try: return int(v)
         except (TypeError, ValueError): return default
+    # zmin/zmax are the zoom range the layer advertises; the tile grid ignores
+    # them (it uses the chosen `zoom`), but the dialog reads them to clamp the
+    # zoom spinner to what the source actually serves.
     return {"template": template,
             "zmin": _int(uri.param("zmin"), 0),
             "zmax": _int(uri.param("zmax"), 22)}

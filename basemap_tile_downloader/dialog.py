@@ -302,8 +302,10 @@ class BasemapTileDialog(QDialog):
         self._set_row_visible(self.tile_lbl, self.tile_spin, is_grid)
         self._set_row_visible(self.res_lbl,  self.res_spin,  is_grid)
         self._set_row_visible(self.zoom_lbl, self.zoom_spin, is_zoom)
-        # The m/px note only applies to XYZ's fixed Web-Mercator grid.
-        self._set_row_visible(self.zoom_res_lbl, self.zoom_res_info, name == "XYZ")
+        # Show the note for both zoom sources: XYZ gets a Web-Mercator m/px
+        # figure, WMTS a "tile-matrix index" note (its resolution is set by the
+        # service, not a fixed grid) — see _update_zoom_label.
+        self._set_row_visible(self.zoom_res_lbl, self.zoom_res_info, is_zoom)
         self._clamp_zoom_range(name)
         self._update_zoom_label()
 
@@ -350,6 +352,13 @@ class BasemapTileDialog(QDialog):
 
     def _update_zoom_label(self, *args):
         z = self.zoom_spin.value()
+        if self._current_source_name() == "WMTS":
+            # WMTS addresses tile matrices by index, and the true resolution comes
+            # from the service's tile matrix set (often not Web Mercator), so a
+            # Web-Mercator m/px figure here would be misleading — don't show one.
+            self.zoom_res_info.setText(
+                "tile-matrix index (resolution set by the service)")
+            return
         lat = self._extent_center_lat()
         if lat is None:
             self.zoom_res_info.setText(

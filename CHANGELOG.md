@@ -5,6 +5,24 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+## [1.4.8] - 2026-07-04
+### Changed
+- Renamed the cache/work folder `btd_cache/` → `__btdcache__/` (next to the
+  project, or in the QGIS profile), aligning with Python's `__pycache__`
+  convention. An in-progress resumable queue in an old `btd_cache/` won't carry
+  over — delete the stale folder, or just re-run to rebuild.
+- README refreshed: documented the **Back-off cap** and **Give up after**
+  Advanced options and the circuit-breaker "stopped early" behavior, noted that
+  the run raises the **Log Messages** panel, added the new `backoff_cap` /
+  `giveup_after` kwargs to the Python-console example, and corrected the
+  `sync.ps1` developer note (it lives in the repo root).
+### Fixed
+- Mosaic-build GDAL failures now surface as a clear `Mosaic creation failed: …`
+  message instead of a raw, cryptic GDAL exception.
+- The WMTS zoom control no longer shows a misleading Web-Mercator m/px figure —
+  it is a tile-matrix index, and the real resolution comes from the service's
+  tile matrix set.
+
 ## [1.4.7] - 2026-07-04
 ### Fixed
 - The task progress bar no longer sits frozen at the last fetch percentage
