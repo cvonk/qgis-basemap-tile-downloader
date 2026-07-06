@@ -39,7 +39,7 @@ DEFAULT_MAX_ATTEMPTS = 6
 DEFAULT_MIN_DELAY    = 0.0
 # Sourced from the engine so the dialog's defaults can't drift from the real ones.
 DEFAULT_BACKOFF_CAP  = engine.MAX_DELAY_SEC                # s; adaptive back-off ceiling
-DEFAULT_GIVEUP_AFTER = engine.MAX_CONSECUTIVE_BACKPRESSURE # consecutive fails → give up
+DEFAULT_GIVEUP_AFTER = engine.MAX_CONSECUTIVE_BACKPRESSURE  # consecutive fails → give up
 
 # Ask for confirmation above this estimated tile count.
 WARN_TILE_COUNT = 5000
@@ -282,8 +282,8 @@ class BasemapTileDialog(QDialog):
 
     # ── filtering / visibility ────────────────────────────────────────────────
     def _restrict_to_sources(self):
-        excepted = [l for l in QgsProject.instance().mapLayers().values()
-                    if isinstance(l, QgsRasterLayer) and engine.source_for(l) is None]
+        excepted = [lyr for lyr in QgsProject.instance().mapLayers().values()
+                    if isinstance(lyr, QgsRasterLayer) and engine.source_for(lyr) is None]
         self.layer_combo.setExceptedLayerList(excepted)
 
     def _current_source_name(self):

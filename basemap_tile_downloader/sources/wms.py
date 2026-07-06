@@ -65,8 +65,8 @@ def extract_params(layer):
     if not params["crs"]:
         params["crs"] = layer.crs().authid()
 
-    known = {"url","URL","layers","LAYERS","styles","STYLES",
-             "crs","CRS","srs","SRS","format","FORMAT","dpiMode","type"}
+    known = {"url", "URL", "layers", "LAYERS", "styles", "STYLES",
+             "crs", "CRS", "srs", "SRS", "format", "FORMAT", "dpiMode", "type"}
     if hasattr(uri, "parameterKeys"):
         for key in uri.parameterKeys():
             if key not in known:

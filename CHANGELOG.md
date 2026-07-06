@@ -5,6 +5,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+## [1.4.14] - 2026-07-05
+### Changed
+- Code-quality cleanups so the plugin passes flake8: renamed an ambiguous loop
+  variable (`l`), and fixed inline-comment and comma spacing. Added a `.flake8`
+  config (`max-line-length=100`, ignoring the pycodestyle codes for the plugin's
+  deliberate compact style, mirroring `ruff.toml`) and a CI flake8 step. No
+  behavior change.
+
 ## [1.4.13] - 2026-07-05
 ### Security
 - Hardened XML parsing of remote WMS/WMTS GetCapabilities and ServiceException

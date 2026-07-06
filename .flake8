@@ -1,0 +1,28 @@
+[flake8]
+max-line-length = 100
+
+# This plugin uses a deliberately compact style: aligned assignments and inline
+# comments, grouped imports, and short one-line ifs / semicolon statements. The
+# pycodestyle warnings below are ignored to allow that style (mirroring
+# ruff.toml, which lints with pyflakes only for the same reason). Pyflakes (F…)
+# checks stay on and catch the real problems (unused imports, undefined names).
+extend-ignore =
+    E114,
+    E116,
+    E221,
+    E222,
+    E272,
+    E302,
+    E306,
+    E401,
+    E701,
+    E702,
+    E704,
+    W503,
+    W504
+
+exclude =
+    .git,
+    __pycache__,
+    .ruff_cache,
+    .pytest_cache

@@ -16,10 +16,15 @@ jobs:
           python-version: "3.11"
 
       - name: Install test dependencies
-        run: pip install pytest ruff
+        run: pip install pytest ruff flake8
 
       - name: Lint (ruff)
         run: ruff check .
+
+      - name: Lint (flake8)
+        # Uses .flake8 (max-line-length=100; the compact-style pycodestyle codes
+        # are ignored there) — this is the QGIS Plugin Repository's quality check.
+        run: flake8 basemap_tile_downloader tests
 
       - name: Byte-compile the plugin
         # Catches syntax errors across every module without needing QGIS
