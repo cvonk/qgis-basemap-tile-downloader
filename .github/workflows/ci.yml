@@ -22,10 +22,10 @@ jobs:
         run: ruff check .
 
       - name: Lint (flake8)
-        # The plugin's flake8 config ships inside the package (so the QGIS Plugin
-        # Repository's Flake8 Code Quality check, which runs against the uploaded
-        # package, honours it). Point flake8 at it explicitly from the repo root.
-        run: flake8 --config basemap_tile_downloader/.flake8 basemap_tile_downloader tests
+        # Uses the repo-root .flake8 (max-line-length=100; compact-style codes and
+        # E501 ignored — ruff owns line length). Not shipped in the package to
+        # avoid a "suspicious hidden file" flag on the QGIS Plugin Repository.
+        run: flake8 basemap_tile_downloader tests
 
       - name: Security analysis (bandit)
         # Gate on medium+ severity (what the QGIS Plugin Repository flags too).

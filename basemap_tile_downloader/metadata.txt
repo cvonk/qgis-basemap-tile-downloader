@@ -3,7 +3,7 @@ name=Basemap Tile Downloader
 qgisMinimumVersion=3.40.8
 description=Download a WMS, WMTS, or XYZ basemap over an extent and mosaic it into a GeoTIFF.
 about=Auto-detects whether the chosen layer is a WMS, WMTS, or XYZ tile source. Tiles the request over a chosen extent (WMS GetMap at a chosen resolution/CRS, or WMTS / Web-Mercator {z}/{x}/{y} at a chosen zoom), downloads with adaptive throttling and a resumable SQLite work queue, georeferences each tile, and builds a compressed, tiled GeoTIFF mosaic (with overviews) using GDAL. Optionally reprojects to a chosen output CRS and crops to the exact extent. Requires the GDAL Python bindings. For personal and educational use only — respect each provider's Terms of Service and usage limits.
-version=1.4.15
+version=1.4.16
 author=Coert Vonk
 email=ing.c.j.s.vonk@gmail.com
 license=GPL-3.0-or-later
@@ -15,7 +15,10 @@ experimental=False
 deprecated=False
 category=Raster
 tags=wms,wmts,xyz,tiles,download,raster,mosaic,gdal,basemap,orthophoto,aoi,web mercator
-changelog=1.4.15 - Ship the .flake8 config inside the plugin package so the QGIS
+changelog=1.4.16 - Removed the .flake8 config from the plugin package (a hidden
+    file inside the package is flagged as suspicious). It stays at the repo root
+    for local dev and CI only.
+    1.4.15 - Ship the .flake8 config inside the plugin package so the QGIS
     Plugin Repository's Flake8 Code Quality check honours it. Added bandit
     (security) and detect-secrets scanning to the CI check-in.
     1.4.14 - Flake8 code-quality cleanups (renamed an ambiguous loop

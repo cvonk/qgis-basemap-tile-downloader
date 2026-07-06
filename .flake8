@@ -1,6 +1,8 @@
 [flake8]
-# Ships inside the plugin package so the QGIS Plugin Repository's Flake8 Code
-# Quality check (which runs flake8 against the uploaded package) honours it.
+# Repo-root config for local dev and CI only. It is intentionally NOT shipped
+# inside the plugin package: a dotfile in the package is flagged as a
+# "suspicious hidden file" by the QGIS Plugin Repository, and config files don't
+# belong in an installed plugin.
 #
 # This plugin uses a deliberately compact style: aligned assignments and inline
 # comments, grouped imports, and short one-line ifs / semicolon statements. The

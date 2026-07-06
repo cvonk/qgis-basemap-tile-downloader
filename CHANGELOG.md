@@ -5,6 +5,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+## [1.4.16] - 2026-07-06
+### Changed
+- Removed the `.flake8` config from the plugin package — a hidden dotfile inside
+  the package is flagged as a "suspicious hidden file" by the QGIS Plugin
+  Repository. It stays at the repo root for local dev and CI only; the plugin
+  package now ships no hidden files.
+
 ## [1.4.15] - 2026-07-06
 ### Changed
 - The `.flake8` config now ships **inside** the plugin package
