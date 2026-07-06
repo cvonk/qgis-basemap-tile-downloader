@@ -5,6 +5,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+## [1.4.11] - 2026-07-05
+### Fixed
+- `metadata.txt` now parses on the QGIS Plugin Repository. Its `changelog`
+  field held literal percent signs, which the repository's `configparser`-based
+  validator (percent interpolation enabled) rejected; the wording was adjusted
+  to drop them.
+
 ## [1.4.10] - 2026-07-05
 ### Added
 - First public release on the QGIS Plugin Repository (plugins.qgis.org).
