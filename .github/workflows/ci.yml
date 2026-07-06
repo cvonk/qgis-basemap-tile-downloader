@@ -16,15 +16,26 @@ jobs:
           python-version: "3.11"
 
       - name: Install test dependencies
-        run: pip install pytest ruff flake8
+        run: pip install pytest ruff flake8 bandit detect-secrets
 
       - name: Lint (ruff)
         run: ruff check .
 
       - name: Lint (flake8)
-        # Uses .flake8 (max-line-length=100; the compact-style pycodestyle codes
-        # are ignored there) — this is the QGIS Plugin Repository's quality check.
-        run: flake8 basemap_tile_downloader tests
+        # The plugin's flake8 config ships inside the package (so the QGIS Plugin
+        # Repository's Flake8 Code Quality check, which runs against the uploaded
+        # package, honours it). Point flake8 at it explicitly from the repo root.
+        run: flake8 --config basemap_tile_downloader/.flake8 basemap_tile_downloader tests
+
+      - name: Security analysis (bandit)
+        # Gate on medium+ severity (what the QGIS Plugin Repository flags too).
+        # Remaining low-severity notes (subprocess to read the git hash, best-
+        # effort try/except/pass, hardened-XML imports) are intentional.
+        run: bandit -r basemap_tile_downloader -q --severity-level medium
+
+      - name: Secrets detection (detect-secrets)
+        run: |
+          detect-secrets scan | python -c "import json,sys; r=json.load(sys.stdin)['results']; print('No secrets detected') if not r else sys.exit('Potential secrets found in: ' + ', '.join(r))"
 
       - name: Byte-compile the plugin
         # Catches syntax errors across every module without needing QGIS

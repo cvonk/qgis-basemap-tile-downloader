@@ -5,6 +5,18 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+## [1.4.15] - 2026-07-06
+### Changed
+- The `.flake8` config now ships **inside** the plugin package
+  (`basemap_tile_downloader/.flake8`) so the QGIS Plugin Repository's Flake8
+  Code Quality check — which runs against the uploaded package — honours it.
+  E501 is disabled there (ruff owns the 100-col limit) alongside the
+  compact-style pycodestyle codes.
+### Added
+- CI check-in now also runs **bandit** (security analysis, gated at medium+
+  severity) and **detect-secrets** (secrets detection), in addition to ruff,
+  flake8, byte-compile, unit tests, and metadata validation.
+
 ## [1.4.14] - 2026-07-05
 ### Changed
 - Code-quality cleanups so the plugin passes flake8: renamed an ambiguous loop

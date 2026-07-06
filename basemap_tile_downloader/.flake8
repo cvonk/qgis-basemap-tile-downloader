@@ -1,0 +1,25 @@
+[flake8]
+# Ships inside the plugin package so the QGIS Plugin Repository's Flake8 Code
+# Quality check (which runs flake8 against the uploaded package) honours it.
+#
+# This plugin uses a deliberately compact style: aligned assignments and inline
+# comments, grouped imports, and short one-line ifs / semicolon statements. The
+# pycodestyle codes below are ignored to permit that style, mirroring ruff.toml
+# (which lints with pyflakes only for the same reason). Line length is enforced
+# by ruff (100 cols), so flake8's E501 is disabled here to avoid a second,
+# differently-configured length check. Pyflakes (F…) stays on and catches the
+# real problems (unused imports, undefined names).
+max-line-length = 100
+extend-ignore =
+    E501,
+    E114, E116,
+    E221, E222, E272,
+    E302, E306,
+    E401,
+    E701, E702, E704,
+    W503, W504
+exclude =
+    .git,
+    __pycache__,
+    .ruff_cache,
+    .pytest_cache
