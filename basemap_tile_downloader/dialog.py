@@ -16,7 +16,7 @@ import subprocess
 from qgis.PyQt.QtWidgets import (
     QDialog, QFormLayout, QVBoxLayout, QHBoxLayout, QDialogButtonBox,
     QSpinBox, QDoubleSpinBox, QLabel, QWidget, QLineEdit, QToolButton,
-    QMenu, QFileDialog, QMessageBox, QComboBox, QCheckBox,
+    QMenu, QFileDialog, QMessageBox, QComboBox, QCheckBox, QPushButton,
 )
 from qgis.core import (
     QgsProject, QgsMapLayerProxyModel, QgsRasterLayer, QgsSettings, QgsRectangle,
@@ -150,11 +150,13 @@ class BasemapTileDialog(QDialog):
         # extent coordinates. Use the default expanded style, which lays the four
         # coordinates out in separate, clearly-labelled fields. The condensed
         # style packs them onto one comma-separated line that is unreadable in
-        # locales using a comma decimal separator, and the "Draw on Canvas"
-        # option it was chosen for has since been removed.
+        # locales using a comma decimal separator.
         self.extent_widget = QgsExtentWidget(None, QgsExtentWidget.ExpandedStyle)
         if self._canvas is not None:
-            self.extent_widget.setMapCanvas(self._canvas, True)
+            # drawOnCanvasOption=False hides the "Draw on Canvas" button — it
+            # doesn't work usefully from this modal dialog. "Map Canvas Extent"
+            # and the other extent options stay available.
+            self.extent_widget.setMapCanvas(self._canvas, False)
         self.extent_widget.setOutputCrs(QgsProject.instance().crs())
         self.extent_widget.extentChanged.connect(self._update_estimate)
         self.extent_widget.extentChanged.connect(self._update_zoom_label)
@@ -259,6 +261,18 @@ class BasemapTileDialog(QDialog):
         aform.addRow("Minimum delay between requests:", self.min_delay_spin)
         aform.addRow("Back-off cap:", self.backoff_cap_spin)
         aform.addRow("Give up after (server errors in a row):", self.giveup_spin)
+
+        # Reset just the Advanced options above to their defaults, right-aligned
+        # on its own row inside the group.
+        self.reset_adv_btn = QPushButton("Reset to defaults")
+        self.reset_adv_btn.setToolTip(
+            "Restore the Advanced options above to their default values "
+            "(parallel downloads defaults to the source's own preference).")
+        self.reset_adv_btn.clicked.connect(self._reset_advanced)
+        reset_row = QHBoxLayout()
+        reset_row.addStretch(1)
+        reset_row.addWidget(self.reset_adv_btn)
+        aform.addRow(reset_row)
 
         buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
         buttons.accepted.connect(self.accept)
@@ -424,6 +438,22 @@ class BasemapTileDialog(QDialog):
     def _sync_resample(self, *args):
         # "None" keeps the native CRS, so the output-CRS picker is irrelevant.
         self.crs_widget.setEnabled(self.resample_combo.currentData() != "none")
+
+    # ── advanced options ──────────────────────────────────────────────────────
+    def _default_concurrency(self):
+        """The default parallel-download count for the current source (a source
+        may prefer fewer, e.g. WMS), or the global default if none is selected."""
+        layer = self.layer_combo.currentLayer()
+        src = engine.source_for(layer) if layer else None
+        return getattr(src, "CONCURRENCY", DEFAULT_CONCURRENCY) if src else DEFAULT_CONCURRENCY
+
+    def _reset_advanced(self):
+        """Restore the Advanced options to their defaults."""
+        self.conc_spin.setValue(self._default_concurrency())
+        self.attempts_spin.setValue(DEFAULT_MAX_ATTEMPTS)
+        self.min_delay_spin.setValue(DEFAULT_MIN_DELAY)
+        self.backoff_cap_spin.setValue(DEFAULT_BACKOFF_CAP)
+        self.giveup_spin.setValue(DEFAULT_GIVEUP_AFTER)
 
     # ── settings persistence ──────────────────────────────────────────────────
     def _restore_state(self):

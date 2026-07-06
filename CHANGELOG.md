@@ -5,6 +5,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+## [1.4.17] - 2026-07-06
+### Added
+- A "Reset to defaults" button in the Advanced options group, restoring the five
+  Advanced settings to their defaults (parallel downloads resets to the current
+  source's own preference).
+### Removed
+- The "Draw on Canvas" button in the extent selector — it didn't work usefully
+  from the modal dialog. "Map Canvas Extent" and the other extent options are
+  unchanged.
+
 ## [1.4.16] - 2026-07-06
 ### Changed
 - Removed the `.flake8` config from the plugin package — a hidden dotfile inside
