@@ -25,7 +25,7 @@ from collections import deque
 from concurrent.futures import ThreadPoolExecutor, wait, FIRST_COMPLETED
 from datetime import datetime, timezone
 
-from qgis.PyQt.QtCore   import QUrl
+from qgis.PyQt.QtCore   import QUrl, pyqtSignal
 from qgis.PyQt.QtNetwork import QNetworkRequest
 
 from qgis.core import (
@@ -540,11 +540,18 @@ def build_mosaic(tile_paths, work_dir, logger, tif_path, native_crs, out_crs,
 # QGSTASK
 # ─────────────────────────────────────────────
 class BasemapTileDownloadTask(QgsTask):
+    # Emitted (from the worker thread) when the fetch phase ends and the mosaic
+    # build begins. Connected to a bound-method slot on this main-thread QObject,
+    # so it is delivered as a queued signal on the main thread — letting the UI
+    # flash a message while the progress bar already sits at 100%.
+    mosaicStarted = pyqtSignal()
+
     def __init__(self, source, layer, extent_wkt, extent_crs, params, opts,
                  native_crs, out_crs, output_path=None, resample="bilinear",
                  clip=False, concurrency=CONCURRENCY,
                  max_attempts=MAX_ATTEMPTS_PER_TILE, min_delay=0.0,
-                 backoff_cap=MAX_DELAY_SEC, giveup_after=MAX_CONSECUTIVE_BACKPRESSURE):
+                 backoff_cap=MAX_DELAY_SEC, giveup_after=MAX_CONSECUTIVE_BACKPRESSURE,
+                 on_mosaic_start=None):
         # Silent: suppress QGIS's own task-finished/terminated notifications — the
         # plugin posts its own completion (and error) messages, so QGIS's generic
         # one is just noise, especially after a failure. (Silent needs QGIS 3.26+;
@@ -585,6 +592,20 @@ class BasemapTileDownloadTask(QgsTask):
         self.was_cancelled   = False     # set if the run was cancelled mid-way
         self.server_gave_up  = False     # set if the circuit breaker tripped (server down)
         self.logger          = build_logger(self.work_dir)
+
+        # Connect on the main thread (where the task is built) to a bound method,
+        # so emitting from the worker thread is auto-delivered as a queued signal.
+        self._on_mosaic_start = on_mosaic_start
+        self.mosaicStarted.connect(self._handle_mosaic_started)
+
+    def _handle_mosaic_started(self):
+        # Runs on the main thread; best-effort UI callback (a message-bar flash).
+        # Never let a UI hiccup disturb the run.
+        if callable(self._on_mosaic_start):
+            try:
+                self._on_mosaic_start()
+            except Exception:
+                pass
 
     def run(self):
         try:
@@ -823,6 +844,11 @@ class BasemapTileDownloadTask(QgsTask):
                     return
                 raise DownloaderError("No tiles downloaded; cannot build mosaic.")
 
+            # Fetch phase is done and there are tiles to mosaic; the progress bar
+            # is already pinned at 100%. Tell the UI the (progress-less) mosaic
+            # build is starting so it can reassure the user it's not stuck.
+            self.mosaicStarted.emit()
+
             cutline = self._build_cutline(extent_geom, logger) if self._clip else None
             # A source may ask to preserve a nodata value (single-band) instead of
             # adding an alpha band (RGB); default is add-alpha, as before.
@@ -914,7 +940,8 @@ class BasemapTileDownloadTask(QgsTask):
 def run(layer=None, extent=None, extent_crs=None, opts=None, out_crs=None,
         output_path=None, temporary=False, resample="bilinear", clip=False,
         concurrency=None, max_attempts=None, min_delay=None,
-        backoff_cap=None, giveup_after=None, on_finished=None):
+        backoff_cap=None, giveup_after=None, on_finished=None,
+        on_mosaic_start=None):
     """
     Start a download task. The source backend (WMS / XYZ) is auto-detected from
     `layer`. `opts` is the source-specific settings dict
@@ -923,6 +950,10 @@ def run(layer=None, extent=None, extent_crs=None, opts=None, out_crs=None,
     `on_finished`, if given, is called on the main thread when the task ends
     with a result dict: {success, loaded, tif, summary, error}. The plugin uses
     it to post a completion message to the QGIS message bar.
+
+    `on_mosaic_start`, if given, is called (no args) on the main thread when the
+    fetch phase ends and the mosaic build begins — the progress bar is at 100%
+    by then, so the plugin uses it to flash a "building mosaic" message.
     """
     for t in QgsApplication.taskManager().activeTasks():
         if t.description() == TASK_DESC:
@@ -977,7 +1008,8 @@ def run(layer=None, extent=None, extent_crs=None, opts=None, out_crs=None,
     giveup   = MAX_CONSECUTIVE_BACKPRESSURE if giveup_after is None else int(giveup_after)
     task = BasemapTileDownloadTask(source, layer, extent_wkt, extent_crs, params, opts,
                                    native, out_crs, output_path, resample, clip,
-                                   conc, attempts, mind, cap, giveup)
+                                   conc, attempts, mind, cap, giveup,
+                                   on_mosaic_start=on_mosaic_start)
 
     def _finished(success):
         release_logger()

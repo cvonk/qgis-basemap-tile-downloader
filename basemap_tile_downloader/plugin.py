@@ -60,7 +60,8 @@ class BasemapTileDownloaderPlugin:
                        resample=resample, clip=clip, concurrency=concurrency,
                        max_attempts=max_attempts, min_delay=min_delay,
                        backoff_cap=backoff_cap, giveup_after=giveup_after,
-                       on_finished=self._on_run_finished)
+                       on_finished=self._on_run_finished,
+                       on_mosaic_start=self._on_mosaic_start)
             self._raise_log_panel()
             self.iface.messageBar().pushInfo(
                 MENU_TITLE,
@@ -84,6 +85,15 @@ class BasemapTileDownloaderPlugin:
                 dock.raise_()
         except Exception:
             pass
+
+    def _on_mosaic_start(self):
+        """Flash a note when the fetch phase ends and the mosaic build begins
+        (runs on the main thread). The progress bar is already at 100% here, but
+        the mosaic step reports no progress and can take a while — this reassures
+        the user it isn't stuck."""
+        self.iface.messageBar().pushInfo(
+            MENU_TITLE, "All tiles fetched — building the GeoTIFF mosaic "
+                        "(this can take a moment)…")
 
     def _on_run_finished(self, result):
         """Post a completion summary to the message bar (runs on the main thread)."""

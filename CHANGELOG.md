@@ -5,6 +5,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+## [1.4.9] - 2026-07-05
+### Added
+- When the fetch phase finishes and the mosaic build begins, a message-bar
+  notice ("All tiles fetched — building the GeoTIFF mosaic…") now appears. The
+  progress bar is already pinned at 100% by then and the mosaic step reports no
+  progress of its own, so this reassures you the run isn't stuck.
+### Changed
+- Declared the plugin's license (`GPL-3.0-or-later`) in `metadata.txt`.
+
 ## [1.4.8] - 2026-07-04
 ### Changed
 - Renamed the cache/work folder `btd_cache/` → `__btdcache__/` (next to the
