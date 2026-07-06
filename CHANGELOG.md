@@ -5,6 +5,18 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+## [1.4.13] - 2026-07-05
+### Security
+- Hardened XML parsing of remote WMS/WMTS GetCapabilities and ServiceException
+  responses (which come from a user-chosen, untrusted server) against
+  entity-expansion ("billion laughs") and external-entity (XXE) attacks. A new
+  dependency-free `safexml.fromstring` replaces
+  `xml.etree.ElementTree.fromstring` in the WMS and WMTS backends: it rejects
+  in-document entity definitions and never resolves external entities, while
+  still parsing legitimate responses unchanged (including WMS 1.1.1 DOCTYPEs).
+  defusedxml would be the usual fix but isn't bundled with QGIS, so the
+  standard-library expat parser is hardened directly instead. Added unit tests.
+
 ## [1.4.12] - 2026-07-05
 ### Fixed
 - Added a `LICENSE` file inside the plugin package. The QGIS Plugin Repository

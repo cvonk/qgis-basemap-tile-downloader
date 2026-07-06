@@ -9,7 +9,7 @@ from qgis.core import (
     QgsCoordinateTransform, QgsRasterLayer, QgsDataSourceUri,
 )
 
-from .. import engine
+from .. import engine, safexml
 from ..engine import DownloaderError, TileFetchError
 from ..tilemath import wms_grid_dims
 
@@ -118,7 +118,7 @@ def prepare(params, opts, logger):
     if not body:
         raise DownloaderError("GetCapabilities returned an empty body.")
     try:
-        root = ET.fromstring(body)
+        root = safexml.fromstring(body)
     except ET.ParseError as e:
         raise DownloaderError(f"Cannot parse GetCapabilities XML: {e}")
 
@@ -244,7 +244,7 @@ def _is_xml_exception(body):
 
 def _parse_exception(body):
     try:
-        root = ET.fromstring(body)
+        root = safexml.fromstring(body)
     except ET.ParseError:
         return "Unparseable XML."
     msgs = [e.text.strip() for e in root.iter()

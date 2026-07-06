@@ -16,7 +16,7 @@ from qgis.core import (
     QgsCoordinateTransform, QgsRasterLayer, QgsDataSourceUri,
 )
 
-from .. import engine
+from .. import engine, safexml
 from ..engine import DownloaderError, TileFetchError
 
 SOURCE_NAME = "WMTS"
@@ -103,7 +103,7 @@ def prepare(params, opts, logger):
     if not body:
         raise DownloaderError("WMTS GetCapabilities returned an empty body.")
     try:
-        root = ET.fromstring(body)
+        root = safexml.fromstring(body)
     except ET.ParseError as e:
         raise DownloaderError(f"Cannot parse WMTS capabilities XML: {e}")
 
