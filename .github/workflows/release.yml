@@ -11,7 +11,7 @@ jobs:
   release:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Build plugin zip
         # git archive uses the committed tree, so no __pycache__/.pyc sneaks in.
@@ -20,7 +20,7 @@ jobs:
         run: git archive --format=zip -o "basemap_tile_downloader-${{ github.ref_name }}.zip" HEAD basemap_tile_downloader
 
       - name: Publish GitHub release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           files: basemap_tile_downloader-*.zip
           generate_release_notes: true
