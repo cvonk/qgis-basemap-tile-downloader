@@ -489,6 +489,67 @@ def cache_key_for(output_path, temporary, fp):
     return fp
 
 
+def migrate_flat_cache(work_dir, fp, logger):
+    """One-time migration of a pre-1.4.18 *flat* cache. Old versions kept a single
+    cache directly in <base>/__btdcache__/; now each job has its own subdir. If a
+    flat cache exists and belongs to *this* job (its stored fingerprint matches
+    `fp`), move it into `work_dir` so an interrupted job still resumes after the
+    upgrade. A flat cache from a different job is left untouched. Returns True if
+    a migration happened."""
+    parent = os.path.dirname(work_dir)                  # the __btdcache__ root
+    flat_db = os.path.join(parent, "tiles.sqlite")
+    if not os.path.isfile(flat_db):
+        return False
+    if os.path.isfile(os.path.join(work_dir, "tiles.sqlite")):
+        return False                                    # job already has its cache
+    try:
+        con = sqlite3.connect(flat_db)
+        row = con.execute(
+            "SELECT value FROM job_meta WHERE key='fingerprint'").fetchone()
+        con.close()
+        stored = json.loads(row[0]) if row else None
+    except Exception:
+        stored = None
+    if stored != fp:
+        return False                                    # different job — leave it
+
+    import shutil
+    logger.info("Migrating a pre-1.4.18 cache into this job's folder (%s).", work_dir)
+    for name in ("tiles.sqlite", "tiles.sqlite-wal", "tiles.sqlite-shm",
+                 "tiles", "mosaic.vrt", "mosaic.tif", "cutline.gpkg"):
+        src = os.path.join(parent, name)
+        if not os.path.exists(src):
+            continue
+        dst = os.path.join(work_dir, name)
+        try:
+            if os.path.exists(dst):     # replace the empty dir/file created at init
+                if os.path.isdir(dst):
+                    shutil.rmtree(dst, ignore_errors=True)
+                else:
+                    os.remove(dst)
+            shutil.move(src, dst)
+        except OSError as e:
+            logger.warning("Could not migrate %s: %s", name, e)
+
+    # The moved DB still records tile paths at the OLD flat location; repoint them
+    # at the new tiles/ dir so already-downloaded tiles are reused, not re-fetched.
+    try:
+        new_tiles = os.path.join(work_dir, "tiles")
+        con = sqlite3.connect(os.path.join(work_dir, "tiles.sqlite"))
+        rows = con.execute(
+            "SELECT id, file_path FROM tiles WHERE file_path IS NOT NULL").fetchall()
+        for tid, fpth in rows:
+            if fpth:
+                con.execute("UPDATE tiles SET file_path=? WHERE id=?",
+                            (os.path.join(new_tiles, os.path.basename(fpth)), tid))
+        con.commit()
+        con.close()
+    except Exception as e:
+        logger.warning("Cache migrated, but repointing tile paths failed (%s); "
+                       "some tiles may be re-downloaded.", e)
+    return True
+
+
 # ─────────────────────────────────────────────
 # MACRO-CELL FETCH ORDER  ("polite mode")
 # ─────────────────────────────────────────────
@@ -702,6 +763,7 @@ class BasemapTileDownloadTask(QgsTask):
         logger.info("Job fingerprint: %s", fp)
 
         db_path = os.path.join(self.work_dir, "tiles.sqlite")
+        migrate_flat_cache(self.work_dir, fp, logger)   # one-time pre-1.4.18 move
         queue   = TileQueue(db_path, logger)
         try:
             queue.populate_if_empty(tiles, {

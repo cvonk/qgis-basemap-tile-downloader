@@ -5,6 +5,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+## [1.4.19] - 2026-07-07
+### Added
+- One-time automatic migration of a pre-1.4.18 flat `__btdcache__` cache: on the
+  next run of the **same** job (matching fingerprint), the old flat cache is
+  moved into the new per-job subdirectory and its stored tile paths are
+  repointed, so an interrupted job resumes without re-downloading. A flat cache
+  belonging to a different job is left untouched. (Supersedes the 1.4.18 note
+  about finishing a job before upgrading.)
+
 ## [1.4.18] - 2026-07-07
 ### Added
 - **Polite mode** for rate-limited / daily-quota servers:
