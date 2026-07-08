@@ -184,11 +184,14 @@ class BasemapTileDialog(QDialog):
         self.res_spin = QDoubleSpinBox(); self.res_spin.setDecimals(3)
         self.res_spin.setRange(0.001, 1000.0); self.res_spin.setSingleStep(0.1)
         self.res_spin.valueChanged.connect(self._update_estimate)
+        # The live bounding-box tile-count estimate lives with the size controls.
+        self.estimate_lbl = QLabel("")
         self.grid_group = QgsCollapsibleGroupBox("Tile size && resolution")
         self.grid_group.setCollapsed(False)
         gform = QFormLayout(self.grid_group)
         gform.addRow("Tile size (px):", self.tile_spin)
         gform.addRow("Resolution (units/px):", self.res_spin)
+        gform.addRow("", self.estimate_lbl)
         form.addRow(self.grid_group)
 
         # XYZ-only rows ------------------------------------------------------
@@ -202,9 +205,11 @@ class BasemapTileDialog(QDialog):
         self.zoom_res_info = QLabel("")
         form.addRow(self.zoom_res_lbl, self.zoom_res_info)
 
-        # Estimated tile count (updates live) --------------------------------
-        self.estimate_lbl = QLabel("")
-        form.addRow("", self.estimate_lbl)
+        # Tile-count estimate for the zoom sources (XYZ/WMTS). The grid sources'
+        # estimate lives in the Tile size & resolution group, which is hidden here.
+        self.zoom_est_lbl  = QLabel("")
+        self.zoom_estimate_info = QLabel("")
+        form.addRow(self.zoom_est_lbl, self.zoom_estimate_info)
 
         # Output settings (CRS, resampling, destination) in a collapsible group
         # that is open by default.
@@ -219,8 +224,8 @@ class BasemapTileDialog(QDialog):
         self.output_group = QgsCollapsibleGroupBox("Output")
         self.output_group.setCollapsed(False)
         oform = QFormLayout(self.output_group)
-        oform.addRow("Output CRS:", self.crs_widget)
         oform.addRow("Reproject sampling:", self.resample_combo)
+        oform.addRow("Output CRS:", self.crs_widget)
         oform.addRow("Output:", self.out_widget)
         form.addRow(self.output_group)
 
@@ -350,14 +355,12 @@ class BasemapTileDialog(QDialog):
         # The Advanced options are all about network downloading, which a local
         # raster doesn't do (it's a windowed read), so grey them out for GeoTIFF.
         self.advanced_group.setEnabled(name != "GeoTIFF")
-        # The tile-count estimate is a download figure; de-emphasise it for a
-        # local raster too.
-        self.estimate_lbl.setEnabled(name != "GeoTIFF")
         self._set_row_visible(self.zoom_lbl, self.zoom_spin, is_zoom)
         # Show the note for both zoom sources: XYZ gets a Web-Mercator m/px
         # figure, WMTS a "tile-matrix index" note (its resolution is set by the
         # service, not a fixed grid) — see _update_zoom_label.
         self._set_row_visible(self.zoom_res_lbl, self.zoom_res_info, is_zoom)
+        self._set_row_visible(self.zoom_est_lbl, self.zoom_estimate_info, is_zoom)
         self._clamp_zoom_range(name)
         self._update_zoom_label()
 
@@ -470,8 +473,11 @@ class BasemapTileDialog(QDialog):
 
     def _update_estimate(self, *args):
         n = self._estimate_tiles()
-        self.estimate_lbl.setText(
-            "" if n is None else f"≈ {n:,} tiles (bounding-box estimate)")
+        text = "" if n is None else f"≈ {n:,} tiles (bounding-box estimate)"
+        # Both labels carry the text; visibility (grid group vs zoom rows) decides
+        # which one the user actually sees for the current source.
+        self.estimate_lbl.setText(text)
+        self.zoom_estimate_info.setText(text)
 
     def _sync_resample(self, *args):
         # "None" keeps the native CRS, so the output-CRS picker is irrelevant.

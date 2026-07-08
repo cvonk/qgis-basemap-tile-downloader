@@ -64,9 +64,12 @@ class BasemapTileDownloaderPlugin:
                        on_finished=self._on_run_finished,
                        on_mosaic_start=self._on_mosaic_start)
             self._raise_log_panel()
+            # A local raster is read/exported, not downloaded.
+            started = "Export" if getattr(engine.source_for(layer), "LOCAL", False) \
+                else "Download"
             self.iface.messageBar().pushInfo(
                 MENU_TITLE,
-                "Download started — progress in the Task Manager; live log in the "
+                f"{started} started — progress in the Task Manager; live log in the "
                 "Log Messages panel (Basemap Tile Downloader tab).")
         except Exception as e:
             QgsMessageLog.logMessage(str(e), "Basemap Tile Downloader", Qgis.Critical)
@@ -93,7 +96,7 @@ class BasemapTileDownloaderPlugin:
         the mosaic step reports no progress and can take a while — this reassures
         the user it isn't stuck."""
         self.iface.messageBar().pushInfo(
-            MENU_TITLE, "All tiles fetched — building the GeoTIFF mosaic "
+            MENU_TITLE, "All tiles ready — building the GeoTIFF mosaic "
                         "(this can take a moment)…")
 
     def _on_run_finished(self, result):
@@ -105,6 +108,7 @@ class BasemapTileDownloaderPlugin:
         cancelled = result.get("cancelled")
         server_gave_up = result.get("server_gave_up")
         budget_reached = s.get("budget_reached")
+        local = result.get("local")     # local raster: read/export, not download
 
         if result.get("loaded"):
             if cancelled:
@@ -132,6 +136,8 @@ class BasemapTileDownloaderPlugin:
                 bar.pushMessage(
                     MENU_TITLE, f"Mosaic loaded — {done} tiles.", level=Qgis.Success)
         elif cancelled:
-            bar.pushInfo(MENU_TITLE, "Cancelled before any tiles were downloaded.")
+            bar.pushInfo(MENU_TITLE,
+                         f"Cancelled before any tiles were {'read' if local else 'downloaded'}.")
         else:
-            bar.pushCritical(MENU_TITLE, result.get("error") or "Download failed.")
+            bar.pushCritical(MENU_TITLE,
+                             result.get("error") or f"{'Export' if local else 'Download'} failed.")

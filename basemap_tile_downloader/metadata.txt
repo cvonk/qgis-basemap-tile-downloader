@@ -3,7 +3,7 @@ name=Basemap Tile Downloader
 qgisMinimumVersion=3.40.8
 description=Download a WMS, WMTS, or XYZ basemap over an extent and mosaic it into a GeoTIFF.
 about=Auto-detects whether the chosen layer is a WMS, WMTS, or XYZ tile source. Tiles the request over a chosen extent (WMS GetMap at a chosen resolution/CRS, or WMTS / Web-Mercator {z}/{x}/{y} at a chosen zoom), downloads with adaptive throttling and a resumable SQLite work queue, georeferences each tile, and builds a compressed, tiled GeoTIFF mosaic (with overviews) using GDAL. Optionally reprojects to a chosen output CRS and crops to the exact extent. Requires the GDAL Python bindings. For personal and educational use only — respect each provider's Terms of Service and usage limits.
-version=1.4.20
+version=1.4.21
 author=Coert Vonk
 email=ing.c.j.s.vonk@gmail.com
 license=GPL-3.0-or-later
@@ -15,7 +15,13 @@ experimental=False
 deprecated=False
 category=Raster
 tags=wms,wmts,xyz,tiles,download,raster,mosaic,gdal,basemap,orthophoto,aoi,web mercator
-changelog=1.4.20 - Dialog reorganized into collapsible groups (Extent + crop,
+changelog=1.4.21 - A local raster (GeoTIFF) is read/exported, not downloaded, and
+    the wording now reflects that (the Task Manager entry reads "Basemap raster
+    export"; the log and message bar say read/export). Dialog tweaks: the
+    tile-count estimate sits with the size controls (under the Zoom level for
+    XYZ), and Reproject sampling now comes before Output CRS. Refreshed the
+    screenshot and README.
+    1.4.20 - Dialog reorganized into collapsible groups (Extent + crop,
     Tile size & resolution, Output). For a GeoTIFF source the Tile size &
     resolution group is collapsed and greyed (it exports at native resolution),
     and the Advanced options and tile-count estimate are greyed out. New

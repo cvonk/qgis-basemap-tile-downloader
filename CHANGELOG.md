@@ -5,6 +5,18 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+## [1.4.21] - 2026-07-07
+### Changed
+- A local raster (GeoTIFF) is **read/exported**, not downloaded, and the plugin's
+  wording now reflects that: the QGIS Task Manager entry reads *"Basemap raster
+  export"*, and the run log and message bar say "read"/"export" rather than
+  "download" for a local source (remote sources are unchanged).
+- Dialog: the live tile-count estimate now sits with the **Tile size &
+  resolution** controls, and under the **Zoom level** for XYZ; in the **Output**
+  group, **Reproject sampling** now comes before **Output CRS**.
+- Refreshed the dialog screenshot and updated the README (polite mode, per-job
+  cache, GeoTIFF read/export, the overwrite prompt, and the new Advanced options).
+
 ## [1.4.20] - 2026-07-07
 ### Added
 - A confirmation prompt before overwriting an existing output file.

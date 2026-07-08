@@ -23,6 +23,8 @@ except ImportError:
     gdal = None
 
 SOURCE_NAME = "GeoTIFF"
+LOCAL = True                   # a local windowed read, not a network download —
+                               # drives the plugin's "read/export" vs "download" wording
 INITIAL_DELAY_SEC = 0.0        # local reads: no server, so no throttling needed
 CONCURRENCY = 4                # each fetch opens its own handle (safe for reads)
 

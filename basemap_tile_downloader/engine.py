@@ -78,7 +78,9 @@ MACRO_GRID       = 8       # tiles are fetched by walking an 8×8 grid of macro-
                            # which keeps partial/interrupted results contiguous
                            # and gives natural pause points ("polite mode").
 LOG_TAB          = "Basemap Tile Downloader"
-TASK_DESC        = "Basemap tile download"
+TASK_DESC        = "Basemap tile download"       # remote sources (WMS/WMTS/XYZ)
+TASK_DESC_LOCAL  = "Basemap raster export"       # a local raster (GeoTIFF) read
+TASK_DESCS       = (TASK_DESC, TASK_DESC_LOCAL)   # any of ours, for the run guard
 
 
 def _plugin_version():
@@ -669,7 +671,15 @@ class BasemapTileDownloadTask(QgsTask):
         silent = getattr(QgsTask, "Silent", None)
         if silent is not None:
             flags |= silent
-        super().__init__(TASK_DESC, flags)
+        # User-facing wording: a local raster is "read/exported", remote tiles are
+        # "downloaded" (internal names stay "fetch"/"tile"). This also names the
+        # QGIS Task Manager entry.
+        local = getattr(source, "LOCAL", False)
+        super().__init__(TASK_DESC_LOCAL if local else TASK_DESC, flags)
+        self._local   = local
+        self._t_label = "raster export" if local else "tile download"
+        self._t_ing   = "Reading" if local else "Fetching"
+        self._t_past  = "read" if local else "downloaded"
         self._source       = source
         self._params       = params
         self._opts         = opts
@@ -739,8 +749,8 @@ class BasemapTileDownloadTask(QgsTask):
     def _run_impl(self):
         logger = self.logger
         ver = _plugin_version()
-        logger.info("=== Basemap tile download%s (%s) starting ===",
-                    f" v{ver}" if ver else "", self._source.SOURCE_NAME)
+        logger.info("=== Basemap %s%s (%s) starting ===",
+                    self._t_label, f" v{ver}" if ver else "", self._source.SOURCE_NAME)
         if gdal is None:
             raise DownloaderError("GDAL bindings unavailable; cannot run.")
 
@@ -808,8 +818,8 @@ class BasemapTileDownloadTask(QgsTask):
             # and the macro-cell of the last-dispatched tile (for inter-cell rest).
             run_done = 0
             last_cell = None
-            logger.info("Fetching with concurrency=%d (back-off cap %.0fs, give up "
-                        "after %s consecutive failures)", self._concurrency,
+            logger.info("%s with concurrency=%d (back-off cap %.0fs, give up "
+                        "after %s consecutive failures)", self._t_ing, self._concurrency,
                         self._backoff_cap,
                         self._giveup_after if self._giveup_after else "never")
             if self._max_tiles:
@@ -970,8 +980,8 @@ class BasemapTileDownloadTask(QgsTask):
             if cancelled:
                 logger.warning(
                     "Cancelled at %d/%d tiles — building a partial mosaic from what "
-                    "downloaded so far (queue checkpointed in %s; re-run to continue).",
-                    n_done, total, db_path)
+                    "%s so far (queue checkpointed in %s; re-run to continue).",
+                    n_done, total, self._t_past, db_path)
             elif self.budget_reached:
                 logger.warning(
                     "Per-run tile budget reached: %d of %d tiles downloaded, %d still "
@@ -985,12 +995,12 @@ class BasemapTileDownloadTask(QgsTask):
                     n_done, total, n_pending, db_path)
             elif n_failed:
                 logger.warning(
-                    "Queue drained: %d of %d tiles downloaded, %d failed after "
+                    "Queue drained: %d of %d tiles %s, %d failed after "
                     "exhausting their retries. The mosaic will have gaps there; "
                     "re-run with the same settings to retry only the failed tiles.",
-                    n_done, total, n_failed)
+                    n_done, total, self._t_past, n_failed)
             else:
-                logger.info("Queue drained: all %d tiles downloaded.", total)
+                logger.info("Queue drained: all %d tiles %s.", total, self._t_past)
             # Tally of distinct errors seen this run (most frequent first) so a
             # provider outage is one readable summary, not thousands of lines.
             for msg, n in sorted(err_seen.items(), key=lambda kv: -kv[1]):
@@ -999,9 +1009,10 @@ class BasemapTileDownloadTask(QgsTask):
             tile_paths = queue.done_file_paths()
             if not tile_paths:
                 if cancelled:
-                    logger.warning("Cancelled before any tile downloaded; nothing to mosaic.")
+                    logger.warning("Cancelled before any tile %s; nothing to mosaic.",
+                                   self._t_past)
                     return
-                raise DownloaderError("No tiles downloaded; cannot build mosaic.")
+                raise DownloaderError(f"No tiles {self._t_past}; cannot build mosaic.")
 
             # Fetch phase is done and there are tiles to mosaic; the progress bar
             # is already pinned at 100%. Tell the UI the (progress-less) mosaic
@@ -1122,8 +1133,8 @@ def run(layer=None, extent=None, extent_crs=None, opts=None, out_crs=None,
     by output name), so a different job no longer wipes an in-progress one.
     """
     for t in QgsApplication.taskManager().activeTasks():
-        if t.description() == TASK_DESC:
-            msg = ("A 'Basemap tile download' task is already running; not starting "
+        if t.description() in TASK_DESCS:
+            msg = ("A Basemap Tile Downloader task is already running; not starting "
                    "another. Cancel it in the Task Manager first to restart.")
             print(f"[Basemap Tile Downloader] {msg}")
             QgsMessageLog.logMessage(msg, LOG_TAB, Qgis.Warning)
@@ -1212,6 +1223,7 @@ def run(layer=None, extent=None, extent_crs=None, opts=None, out_crs=None,
                     "loaded":    loaded,
                     "cancelled": bool(task.was_cancelled),
                     "server_gave_up": bool(task.server_gave_up),
+                    "local":     bool(getattr(task, "_local", False)),
                     "tif":       tif,
                     "summary":   task.summary or {},
                     "error":     (str(task.exception)
