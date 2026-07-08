@@ -170,23 +170,26 @@ class BasemapTileDialog(QDialog):
         extent_layout = QVBoxLayout(extent_group)
         extent_layout.setContentsMargins(6, 6, 6, 6)
         extent_layout.addWidget(self.extent_widget)
+        # "Crop to the exact extent" lives with the extent it applies to.
+        self.clip_check = QCheckBox("Crop output to the exact extent")
+        extent_layout.addWidget(self.clip_check)
         form.addRow(extent_group)
 
-        self.clip_check = QCheckBox("Crop output to the exact extent")
-        form.addRow("", self.clip_check)
-
-        # WMS-only rows ------------------------------------------------------
-        self.tile_lbl  = QLabel("Tile size (px):")
+        # Tile size + resolution (WMS and local rasters), in a collapsible group
+        # that is open by default. Greyed out for GeoTIFF, which is exported at
+        # its own native resolution.
         self.tile_spin = QSpinBox(); self.tile_spin.setRange(256, 8192)
         self.tile_spin.setSingleStep(256)
         self.tile_spin.valueChanged.connect(self._update_estimate)
-        form.addRow(self.tile_lbl, self.tile_spin)
-
-        self.res_lbl  = QLabel("Resolution (units/px):")
         self.res_spin = QDoubleSpinBox(); self.res_spin.setDecimals(3)
         self.res_spin.setRange(0.001, 1000.0); self.res_spin.setSingleStep(0.1)
         self.res_spin.valueChanged.connect(self._update_estimate)
-        form.addRow(self.res_lbl, self.res_spin)
+        self.grid_group = QgsCollapsibleGroupBox("Tile size && resolution")
+        self.grid_group.setCollapsed(False)
+        gform = QFormLayout(self.grid_group)
+        gform.addRow("Tile size (px):", self.tile_spin)
+        gform.addRow("Resolution (units/px):", self.res_spin)
+        form.addRow(self.grid_group)
 
         # XYZ-only rows ------------------------------------------------------
         self.zoom_lbl  = QLabel("Zoom level:")
@@ -203,20 +206,23 @@ class BasemapTileDialog(QDialog):
         self.estimate_lbl = QLabel("")
         form.addRow("", self.estimate_lbl)
 
-        # Common -------------------------------------------------------------
+        # Output settings (CRS, resampling, destination) in a collapsible group
+        # that is open by default.
         self.crs_widget = QgsProjectionSelectionWidget()
-        form.addRow("Output CRS:", self.crs_widget)
-
         self.resample_combo = QComboBox()
         self.resample_combo.addItem("Bilinear", "bilinear")
         self.resample_combo.addItem("Nearest neighbour", "near")
         self.resample_combo.addItem("Cubic", "cubic")
         self.resample_combo.addItem("None (keep native CRS, no reprojection)", "none")
         self.resample_combo.currentIndexChanged.connect(self._sync_resample)
-        form.addRow("Reproject sampling:", self.resample_combo)
-
         self.out_widget = OutputDestinationWidget()
-        form.addRow("Output:", self.out_widget)
+        self.output_group = QgsCollapsibleGroupBox("Output")
+        self.output_group.setCollapsed(False)
+        oform = QFormLayout(self.output_group)
+        oform.addRow("Output CRS:", self.crs_widget)
+        oform.addRow("Reproject sampling:", self.resample_combo)
+        oform.addRow("Output:", self.out_widget)
+        form.addRow(self.output_group)
 
         # Advanced options — created here, placed in a collapsible group below.
         self.conc_spin = QSpinBox()
@@ -274,7 +280,7 @@ class BasemapTileDialog(QDialog):
             "fetched cell by cell (like panning a map), so a rest here spreads "
             "the load and can avoid a server's short-term burst limit. 0 = off.")
 
-        advanced = QgsCollapsibleGroupBox("Advanced")
+        self.advanced_group = advanced = QgsCollapsibleGroupBox("Advanced")
         advanced.setCollapsed(True)
         aform = QFormLayout(advanced)
         aform.addRow("Parallel downloads:", self.conc_spin)
@@ -333,11 +339,20 @@ class BasemapTileDialog(QDialog):
 
     def _on_layer_changed(self, *args):
         name = self._current_source_name()
-        # WMS and local rasters (GeoTIFF) use tile-size + resolution.
+        # WMS and local rasters (GeoTIFF) use tile-size + resolution; the group is
+        # hidden for the zoom sources and greyed out for GeoTIFF (native res).
         is_grid = name in ("WMS", "GeoTIFF")
         is_zoom = name in ("XYZ", "WMTS")       # both address tiles by zoom level
-        self._set_row_visible(self.tile_lbl, self.tile_spin, is_grid)
-        self._set_row_visible(self.res_lbl,  self.res_spin,  is_grid)
+        self.grid_group.setVisible(is_grid)
+        self.grid_group.setEnabled(name == "WMS")
+        # GeoTIFF uses its native resolution, so fold the group away (and grey it).
+        self.grid_group.setCollapsed(name == "GeoTIFF")
+        # The Advanced options are all about network downloading, which a local
+        # raster doesn't do (it's a windowed read), so grey them out for GeoTIFF.
+        self.advanced_group.setEnabled(name != "GeoTIFF")
+        # The tile-count estimate is a download figure; de-emphasise it for a
+        # local raster too.
+        self.estimate_lbl.setEnabled(name != "GeoTIFF")
         self._set_row_visible(self.zoom_lbl, self.zoom_spin, is_zoom)
         # Show the note for both zoom sources: XYZ gets a Web-Mercator m/px
         # figure, WMTS a "tile-matrix index" note (its resolution is set by the
@@ -586,6 +601,18 @@ class BasemapTileDialog(QDialog):
                 QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
             if reply != QMessageBox.Yes:
                 return          # keep the dialog open
+
+        # Confirm before overwriting an existing output file (temporary output
+        # has no path, so it never prompts).
+        out_path = self.out_widget.file_path()
+        if out_path and os.path.exists(out_path):
+            reply = QMessageBox.question(
+                self, "Overwrite file?",
+                f"The output file already exists:\n{out_path}\n\nOverwrite it?",
+                QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
+            if reply != QMessageBox.Yes:
+                return          # keep the dialog open
+
         self._save_state()
         super().accept()
 

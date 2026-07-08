@@ -5,6 +5,19 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+## [1.4.20] - 2026-07-07
+### Added
+- A confirmation prompt before overwriting an existing output file.
+### Changed
+- Reorganized the dialog into collapsible groups (all open by default):
+  - "Crop output to the exact extent" moved into the **Extent to render** group.
+  - **Tile size & resolution** grouped together.
+  - **Output** groups Output CRS, Reproject sampling, and the output destination.
+- A **GeoTIFF** source is a local windowed read, not a download, so its dialog
+  now reflects that: the Tile size & resolution group is collapsed and greyed
+  (the raster is exported at its native resolution), and the Advanced options
+  and the tile-count estimate are greyed out.
+
 ## [1.4.19] - 2026-07-07
 ### Added
 - One-time automatic migration of a pre-1.4.18 flat `__btdcache__` cache: on the
