@@ -5,6 +5,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+## [1.5.1] - 2026-07-08
+### Changed
+- Declare QGIS 4 support via `qgisMaximumVersion=4.99` and remove the deprecated
+  `supportsQt6` flag — the QGIS Plugin Repository now derives Qt 6 / QGIS 4
+  eligibility from `qgisMaximumVersion`, not `supportsQt6`.
+
 ## [1.5.0] - 2026-07-08
 ### Added
 - **QGIS 4 / Qt 6 support.** The plugin now runs on QGIS 4.2 (Qt 6) as well as

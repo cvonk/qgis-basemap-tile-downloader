@@ -1,9 +1,10 @@
 [general]
 name=Basemap Tile Downloader
 qgisMinimumVersion=3.40.8
+qgisMaximumVersion=4.99
 description=Download a WMS, WMTS, or XYZ basemap over an extent and mosaic it into a GeoTIFF.
 about=Auto-detects whether the chosen layer is a WMS, WMTS, or XYZ tile source. Tiles the request over a chosen extent (WMS GetMap at a chosen resolution/CRS, or WMTS / Web-Mercator {z}/{x}/{y} at a chosen zoom), downloads with adaptive throttling and a resumable SQLite work queue, georeferences each tile, and builds a compressed, tiled GeoTIFF mosaic (with overviews) using GDAL. Optionally reprojects to a chosen output CRS and crops to the exact extent. Requires the GDAL Python bindings. For personal and educational use only — respect each provider's Terms of Service and usage limits.
-version=1.5.0
+version=1.5.1
 author=Coert Vonk
 email=ing.c.j.s.vonk@gmail.com
 license=GPL-3.0-or-later
@@ -13,11 +14,13 @@ homepage=https://github.com/cvonk/qgis-basemap-tile-downloader
 icon=icon.svg
 experimental=False
 deprecated=False
-supportsQt6=True
 category=Raster
 tags=wms,wmts,xyz,tiles,download,raster,mosaic,gdal,basemap,orthophoto,aoi,web mercator
-changelog=1.5.0 - QGIS 4 / Qt 6 support: the plugin now runs on QGIS 4.2 as well
-    as QGIS 3.40+ from a single codebase (scoped Qt enums, supportsQt6=True).
+changelog=1.5.1 - Declare QGIS 4 support via qgisMaximumVersion=4.99 and drop the
+    deprecated supportsQt6 flag (QGIS 4 eligibility is now taken from
+    qgisMaximumVersion).
+    1.5.0 - QGIS 4 / Qt 6 support: the plugin now runs on QGIS 4.2 as well
+    as QGIS 3.40+ from a single codebase (scoped Qt enums).
     Note QGIS 4 uses a separate profile root (see the README install notes).
     1.4.22 - Fully-transparent tiles are kept and mosaicked like any other
     tile. The cache stores relative file paths, so a job folder can be
