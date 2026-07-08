@@ -5,6 +5,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+## [1.5.0] - 2026-07-08
+### Added
+- **QGIS 4 / Qt 6 support.** The plugin now runs on QGIS 4.2 (Qt 6) as well as
+  QGIS 3.40+ (Qt 5) from a single codebase: the raw Qt enums are used in their
+  scoped form (which both Qt versions accept), and `metadata.txt` declares
+  `supportsQt6=True`. Verified end-to-end (dialog, message boxes, a full download
+  run, and the network path) against QGIS 4.2.0 (Qt 6.11) and 3.44 (Qt 5.15).
+  Note: QGIS 4 uses a separate profile root (`…/QGIS4/…`) for manual installs —
+  see the README.
+
 ## [1.4.22] - 2026-07-08
 ### Changed
 - Fully-transparent tiles are now kept and mosaicked like any other tile — WMS no

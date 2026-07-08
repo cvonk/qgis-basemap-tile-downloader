@@ -99,7 +99,7 @@ class OutputDestinationWidget(QWidget):
 
         self.btn = QToolButton()
         self.btn.setText("…")
-        self.btn.setPopupMode(QToolButton.InstantPopup)
+        self.btn.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
         menu = QMenu(self.btn)
         menu.addAction("Save to File…").triggered.connect(self._choose_file)
         menu.addAction("Save to Temporary File").triggered.connect(self._set_temporary)
@@ -309,7 +309,8 @@ class BasemapTileDialog(QDialog):
         reset_row.addWidget(self.reset_adv_btn)
         aform.addRow(reset_row)
 
-        buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+        buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok
+                                   | QDialogButtonBox.StandardButton.Cancel)
         buttons.accepted.connect(self.accept)
         buttons.rejected.connect(self.reject)
 
@@ -613,8 +614,9 @@ class BasemapTileDialog(QDialog):
                 "Bulk-downloading tiles may violate the provider's Terms of "
                 "Service (e.g. Google, Bing, Esri). Make sure your intended use "
                 "is permitted before continuing.\n\nContinue?",
-                QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
-            if reply != QMessageBox.Yes:
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.No)
+            if reply != QMessageBox.StandardButton.Yes:
                 return          # keep the dialog open
 
         # Confirm before overwriting an existing output file (temporary output
@@ -624,8 +626,9 @@ class BasemapTileDialog(QDialog):
             reply = QMessageBox.question(
                 self, "Overwrite file?",
                 f"The output file already exists:\n{out_path}\n\nOverwrite it?",
-                QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
-            if reply != QMessageBox.Yes:
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.No)
+            if reply != QMessageBox.StandardButton.Yes:
                 return          # keep the dialog open
 
         self._save_state()

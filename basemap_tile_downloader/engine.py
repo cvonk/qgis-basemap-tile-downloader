@@ -190,7 +190,8 @@ def release_logger():
 def blocking_get(url, timeout_ms=REQUEST_TIMEOUT_MS):
     req    = QgsBlockingNetworkRequest()
     qt_req = QNetworkRequest(QUrl(url))
-    qt_req.setHeader(QNetworkRequest.UserAgentHeader, b"QGIS-Basemap-Tile-Downloader/1.0")
+    qt_req.setHeader(QNetworkRequest.KnownHeaders.UserAgentHeader,
+                     b"QGIS-Basemap-Tile-Downloader/1.0")
     try:
         qt_req.setTransferTimeout(int(timeout_ms))    # Qt 5.15+ (QGIS 3.16+)
     except (AttributeError, TypeError):
@@ -198,7 +199,7 @@ def blocking_get(url, timeout_ms=REQUEST_TIMEOUT_MS):
     err_code = req.get(qt_req, forceRefresh=True)
 
     reply  = req.reply()
-    status = reply.attribute(QNetworkRequest.HttpStatusCodeAttribute)
+    status = reply.attribute(QNetworkRequest.Attribute.HttpStatusCodeAttribute)
     body   = bytes(reply.content())
     headers = {}
     for h in reply.rawHeaderList():

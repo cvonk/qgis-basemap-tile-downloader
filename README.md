@@ -2,49 +2,40 @@
 
 [![CI](https://github.com/cvonk/qgis-basemap-tile-downloader/actions/workflows/ci.yml/badge.svg)](https://github.com/cvonk/qgis-basemap-tile-downloader/actions/workflows/ci.yml)
 
-A QGIS plugin that exports a high-resolution GeoTIFF from a **WMS**, **WMTS**, or
+A QGIS plugin that exports a high-resolution GeoTIFF from an online **WMS**, **WMTS**, or
 **XYZ** basemap — or from a **local raster** (e.g. a GeoTIFF already loaded in
 the project) — over a chosen rectangular extent.
 
-It:
+This build:
 - Auto-detects whether the chosen layer is a WMS, WMTS, or XYZ tile source, or a
   local (GDAL) raster such as a GeoTIFF.
-- Tiles the request over the extent — WMS `GetMap` at a chosen resolution/CRS,
-  WMTS / Web-Mercator `{z}/{x}/{y}` tiles at a chosen zoom level, or a windowed
-  read of a local raster at its native resolution.
-- Throttles requests adaptively (tuned per source type) and fetches tiles in
-  parallel, with a configurable number of parallel downloads. A server-directed
-  `Retry-After` is honoured; a local raster has nothing to download, so it is
-  read at full speed.
-- Tracks progress in a resumable SQLite queue (one per job, kept beside your
-  project), so an interrupted run continues where it left off and a re-run
-  retries any tiles that failed previously. Starting a *different* export no
-  longer wipes an in-progress one, and a cache folder can be moved or backed up
-  and still resume.
-- Fetches tiles by walking an 8×8 grid of macro-cells (like panning a map), so a
-  partial result is spatially contiguous. For rate-limited or daily-quota servers
-  a **"polite mode"** can stop after a set number of tiles per run (resume the
-  next day) and rest between cells.
-- Georeferences each tile and mosaics them into a compressed, tiled GeoTIFF
-  (with overviews), optionally reprojected to a chosen output CRS (selectable
-  resampling) and cropped to the exact extent, then loads it into the project.
-  Single-band rasters (e.g. a DTM) keep their nodata value instead of gaining an
-  alpha band.
+- Tiles the request over the extent — WMS `GetMap` at a chosen resolution or zoom level.
+- Throttles requests adaptively (tuned per source type) and fetches tiles in parallel, with a configurable number of parallel downloads.
+- Tracks progress in a resumable SQLite queue (one per job, kept beside your project), so an interrupted run continues where it left off and a re-run retries any tiles that failed previously.
+- Fetches tiles by walking an 8×8 grid of macro-cells (like panning a map), so a partial result is spatially contiguous. For rate-limited or daily-quota servers a **"polite mode"** can stop after a set number of tiles per run (resume the next day) and rest between cells.
+- Georeferences each tile and mosaics them into a compressed, tiled GeoTIFF (with overviews), optionally reprojected to a chosen output CRS and cropped to the exact extent, then loads it into the project.
+- Single-band rasters (e.g. a DTM) keep their nodata value instead of gaining an alpha band.
 
-Requires the GDAL Python bindings (bundled with QGIS). Written for QGIS 3.40.8.
+Requires the GDAL Python bindings (bundled with QGIS). Originally written for QGIS 3.40.8.  Tested in QGIS 4.2.0.
 
-> **Note:** This plugin is intended for personal and educational use only.
-> Bulk-downloading tiles may violate a provider's Terms of Service (e.g. Google,
-> Bing, Esri). Make sure your intended use is permitted, and respect each
-> provider's usage limits, before downloading.
+> **Note:** This plugin is intended for personal and educational use only. Bulk-downloading tiles may violate a provider's Terms of Service (e.g. Google, Bing, Esri). Make sure your intended use is permitted, and respect each provider's usage limits, before downloading.
 
-## Installation
+## Native Installation
+
+Install from QGIS using the Plugins > Manage and Install Plugins, and search for "Basemap Tile Downloader".
+
+## Manual Installation
 
 The installable plugin lives in the **`basemap_tile_downloader/`** sub-folder of
 this repository (the repo root holds the README, licence and screenshots).
 
-1. Copy the `basemap_tile_downloader` folder into your QGIS plugins folder:
-   `$env:APPDATA\QGIS\QGIS3\profiles\default\python\plugins\`
+1. Copy the `basemap_tile_downloader` folder into your QGIS plugins folder.
+   QGIS 4 uses a separate profile root from QGIS 3, so pick the one for your
+   version:
+   - QGIS 3: `$env:APPDATA\QGIS\QGIS3\profiles\default\python\plugins\`
+   - QGIS 4: `$env:APPDATA\QGIS\QGIS4\profiles\default\python\plugins\`
+
+   (On macOS/Linux the base is `~/.local/share/QGIS/QGIS3` or `…/QGIS4`.)
 2. In QGIS, open **Plugins ▸ Manage and Install Plugins ▸ Installed**.
 3. Check the box next to **Basemap Tile Downloader** to activate it.
 
@@ -271,7 +262,8 @@ range, not a change in the data — match the layers' Min/Max in Symbology to
 compare.)
 
 **Which version of QGIS is this for?**
-It was written for QGIS 3.40.8.
+It was written for QGIS 3.40.8 and also runs on QGIS 4.2.0. The same package
+works on both Qt 5 (QGIS 3.40+) and Qt 6 (QGIS 4).
 
 **Can I run it from the QGIS Python Console?**
 Yes — the source backend is auto-detected from the layer you pass:
@@ -302,5 +294,6 @@ engine.run(layer=wms, extent=extent, extent_crs=extent_crs,
 ```
 
 ## Licence
+
 
 See [LICENSE](LICENSE).
