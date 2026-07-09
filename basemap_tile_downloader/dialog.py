@@ -595,14 +595,25 @@ class BasemapTileDialog(QDialog):
                     ext.xMinimum(), ext.yMinimum(), ext.xMaximum(), ext.yMaximum()))
                 s.setValue(f"{g}/extent_crs", crs.authid() or crs.toWkt())
 
+    def _would_resume(self):
+        """True if a re-run with the current settings would resume an existing
+        job (matching cache) rather than start fresh — used to skip the
+        overwrite-output prompt."""
+        v = self.values()   # (layer, extent, extent_crs, opts, out_crs, out_path, temporary, …)
+        return engine.has_resumable_cache(v[0], v[1], v[2], v[3], v[5], v[6])
+
     def accept(self):
+        # Resuming an existing job just continues it, so skip both the
+        # large-download/ToS reminder and the overwrite-output prompt.
+        resuming = self._would_resume()
+
         n = self._estimate_tiles()
         name = self._current_source_name()
         # WMTS tile counts can't be estimated without fetching capabilities, so
         # its estimate is always None; still surface the ToS reminder there.
         large = bool(n and n > WARN_TILE_COUNT)
         unbounded_wmts = (name == "WMTS" and n is None)
-        if large or unbounded_wmts:
+        if (large or unbounded_wmts) and not resuming:
             count_line = (
                 f"This will download roughly {n:,} tiles, which may be slow and "
                 f"put load on the server.\n\n" if large else
@@ -620,9 +631,10 @@ class BasemapTileDialog(QDialog):
                 return          # keep the dialog open
 
         # Confirm before overwriting an existing output file (temporary output
-        # has no path, so it never prompts).
+        # has no path, so it never prompts). Skip the prompt when a re-run would
+        # just resume this job — the existing file is our own partial output.
         out_path = self.out_widget.file_path()
-        if out_path and os.path.exists(out_path):
+        if out_path and os.path.exists(out_path) and not resuming:
             reply = QMessageBox.question(
                 self, "Overwrite file?",
                 f"The output file already exists:\n{out_path}\n\nOverwrite it?",

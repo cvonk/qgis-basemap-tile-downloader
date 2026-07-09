@@ -5,6 +5,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+## [1.5.3] - 2026-07-08
+### Changed
+- When a re-run would just **resume** an existing job (a cache with the matching
+  fingerprint already exists), the dialog no longer asks to confirm the large
+  download or to overwrite the output file — those prompts are for a genuinely
+  new export. A new or changed job (different extent/settings) still prompts.
+
 ## [1.5.2] - 2026-07-08
 ### Changed
 - The per-tile "Tile N OK" message is now logged at DEBUG (to `download.log`

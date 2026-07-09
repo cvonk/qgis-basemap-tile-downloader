@@ -503,6 +503,46 @@ def cache_key_for(output_path, temporary, fp):
     return fp
 
 
+def job_base_dir():
+    """Where the `__btdcache__` folder lives: next to the saved project, else the
+    QGIS settings dir."""
+    project = QgsProject.instance()
+    return (os.path.dirname(project.fileName())
+            if project.fileName() else QgsApplication.qgisSettingsDirPath())
+
+
+def has_resumable_cache(layer, extent, extent_crs, opts, output_path, temporary):
+    """True if a work queue already exists for this exact job (same source,
+    params, extent and output) with tiles in it — i.e. a run would *resume* it
+    rather than start fresh. The dialog uses this to skip the "overwrite output
+    file?" prompt when you are just continuing a job. Best-effort: any problem
+    returns False, so the prompt still protects a genuinely new export."""
+    try:
+        source = source_for(layer)
+        if source is None or extent is None or extent.isEmpty():
+            return False
+        params = source.extract_params(layer)
+        extent_wkt = QgsGeometry.fromRect(extent).asWkt()
+        fp = fingerprint(source, params, opts or {}, extent_wkt,
+                         extent_crs or QgsProject.instance().crs().authid())
+        ckey = cache_key_for(output_path, temporary, fp)
+        db = os.path.join(job_base_dir(), WORK_SUBDIR_NAME, ckey, "tiles.sqlite")
+        if not os.path.isfile(db):
+            return False
+        con = sqlite3.connect(db)
+        try:
+            row = con.execute(
+                "SELECT value FROM job_meta WHERE key='fingerprint'").fetchone()
+            stored = json.loads(row[0]) if row else None
+            n = con.execute("SELECT COUNT(*) FROM tiles").fetchone()[0]
+        finally:
+            con.close()
+        # Same job (fingerprint matches) with a populated queue → a resume.
+        return stored == fp and n > 0
+    except Exception:
+        return False
+
+
 def migrate_flat_cache(work_dir, fp, logger):
     """One-time migration of a pre-1.4.18 *flat* cache. Old versions kept a single
     cache directly in <base>/__btdcache__/; now each job has its own subdir. If a
@@ -716,13 +756,10 @@ class BasemapTileDownloadTask(QgsTask):
         self._max_tiles    = max(0, int(max_tiles or 0))
         self._rest_seconds = max(0.0, float(rest_seconds or 0.0))
 
-        project = QgsProject.instance()
-        base_dir = (os.path.dirname(project.fileName())
-                    if project.fileName() else QgsApplication.qgisSettingsDirPath())
         # Each job gets its own cache subdir (keyed by the output name, or the
         # job fingerprint for a temporary output), so downloading a different
         # source/extent no longer wipes an in-progress (e.g. rate-limited) job.
-        self.work_dir = os.path.join(base_dir, WORK_SUBDIR_NAME, cache_key or "default")
+        self.work_dir = os.path.join(job_base_dir(), WORK_SUBDIR_NAME, cache_key or "default")
         os.makedirs(os.path.join(self.work_dir, "tiles"), exist_ok=True)
 
         self.result_tif_path = None
