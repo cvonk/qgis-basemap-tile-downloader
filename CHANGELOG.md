@@ -5,6 +5,18 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+## [1.6.0] - 2026-07-10
+### Removed
+- The "polite mode" macro-cell features: the **Stop after (tiles this run)** and
+  **Rest after each macro-cell** Advanced options, and the 8×8 macro-cell fetch
+  ordering (tiles now fetch in natural raster order). They added complexity for
+  little practical benefit. Rate-limited and daily-quota servers are still
+  handled by the adaptive throttle, **Minimum delay**, **Back-off cap**, **Give
+  up after**, and the resumable per-job cache — run, let it stop, and re-run to
+  resume (the next day for a daily quota). The only change to interrupted runs is
+  cosmetic: a cancelled run's partial mosaic fills top-to-bottom rather than
+  growing outward from a corner.
+
 ## [1.5.4] - 2026-07-09
 ### Added
 - When the extent is taken from a layer (*Calculate from Layer*) that has **more

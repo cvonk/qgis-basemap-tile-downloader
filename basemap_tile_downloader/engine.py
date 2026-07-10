@@ -73,10 +73,6 @@ CONCURRENCY              = 4       # default parallel tile fetches; a source may
 
 CLEANUP_TILES_AFTER_MOSAIC = False
 WORK_SUBDIR_NAME = "__btdcache__"
-MACRO_GRID       = 8       # tiles are fetched by walking an 8×8 grid of macro-
-                           # cells (spatially clustered, like a user panning),
-                           # which keeps partial/interrupted results contiguous
-                           # and gives natural pause points ("polite mode").
 LOG_TAB          = "Basemap Tile Downloader"
 TASK_DESC        = "Basemap tile download"       # remote sources (WMS/WMTS/XYZ)
 TASK_DESC_LOCAL  = "Basemap raster export"       # a local raster (GeoTIFF) read
@@ -605,37 +601,6 @@ def migrate_flat_cache(work_dir, fp, logger):
 
 
 # ─────────────────────────────────────────────
-# MACRO-CELL FETCH ORDER  ("polite mode")
-# ─────────────────────────────────────────────
-def reorder_macrocells(tiles, grid=MACRO_GRID):
-    """Reorder tiles so they are fetched by walking a `grid`×`grid` array of
-    macro-cells (each cell swept row-major), rather than one long raster scan.
-    Each tile must carry integer grid coordinates "gx"/"gy". Reassigns "id" to
-    the new fetch order and stamps "cell" (used to pause between cells). This is
-    deterministic, so a resumed run rebuilds the identical order."""
-    if not tiles or "gx" not in tiles[0] or "gy" not in tiles[0]:
-        return tiles                        # source didn't supply grid coords
-    gxs = [t["gx"] for t in tiles]
-    gys = [t["gy"] for t in tiles]
-    gx0, gy0 = min(gxs), min(gys)
-    span_x = max(gxs) - gx0 + 1
-    span_y = max(gys) - gy0 + 1
-    # Size of one macro-cell (in tiles); at least 1.
-    cw = max(1, -(-span_x // grid))     # ceil division
-    ch = max(1, -(-span_y // grid))
-
-    def _cell(t):
-        return ((t["gy"] - gy0) // ch, (t["gx"] - gx0) // cw)
-
-    tiles.sort(key=lambda t: (_cell(t), t["gy"], t["gx"]))   # cells, then row-major
-    for i, t in enumerate(tiles):
-        cy, cx = _cell(t)
-        t["id"] = i
-        t["cell"] = cy * grid + cx
-    return tiles
-
-
-# ─────────────────────────────────────────────
 # MOSAIC
 # ─────────────────────────────────────────────
 def build_mosaic(tile_paths, work_dir, logger, tif_path, native_crs, out_crs,
@@ -713,8 +678,7 @@ class BasemapTileDownloadTask(QgsTask):
                  clip=False, concurrency=CONCURRENCY,
                  max_attempts=MAX_ATTEMPTS_PER_TILE, min_delay=0.0,
                  backoff_cap=MAX_DELAY_SEC, giveup_after=MAX_CONSECUTIVE_BACKPRESSURE,
-                 max_tiles=0, rest_seconds=0.0, cache_key=None,
-                 on_mosaic_start=None):
+                 cache_key=None, on_mosaic_start=None):
         # Silent: suppress QGIS's own task-finished/terminated notifications — the
         # plugin posts its own completion (and error) messages, so QGIS's generic
         # one is just noise, especially after a failure. (Silent needs QGIS 3.26+;
@@ -750,11 +714,6 @@ class BasemapTileDownloadTask(QgsTask):
         # circuit-breaker threshold (0 = never give up, only the per-tile limit).
         self._backoff_cap  = max(self._min_delay, float(backoff_cap or MAX_DELAY_SEC))
         self._giveup_after = max(0, int(giveup_after))
-        # "Polite mode": stop after this many tiles are downloaded this run (0 =
-        # no limit) so a daily-quota server can be filled over several days, and
-        # rest this many seconds after each 8×8 macro-cell (0 = off).
-        self._max_tiles    = max(0, int(max_tiles or 0))
-        self._rest_seconds = max(0.0, float(rest_seconds or 0.0))
 
         # Each job gets its own cache subdir (keyed by the output name, or the
         # job fingerprint for a temporary output), so downloading a different
@@ -767,7 +726,6 @@ class BasemapTileDownloadTask(QgsTask):
         self.summary         = None      # {total, done, failed} once tiles resolve
         self.was_cancelled   = False     # set if the run was cancelled mid-way
         self.server_gave_up  = False     # set if the circuit breaker tripped (server down)
-        self.budget_reached  = False     # set if the per-run tile budget was hit
         self.logger          = build_logger(self.work_dir)
 
         # Connect on the main thread (where the task is built) to a bound method,
@@ -816,7 +774,6 @@ class BasemapTileDownloadTask(QgsTask):
 
         tiles = self._source.build_tile_grid(
             extent_geom, self._extent_crs, self._params, self._opts, logger)
-        tiles = reorder_macrocells(tiles)      # fetch by 8×8 macro-cell (polite)
         fp = fingerprint(self._source, self._params, self._opts,
                          self._extent_wkt, self._extent_crs)
         logger.info("Job fingerprint: %s", fp)
@@ -863,48 +820,24 @@ class BasemapTileDownloadTask(QgsTask):
             # Circuit breaker: back-pressure failures in a row with no success.
             # Reset by any successful tile; trips at MAX_CONSECUTIVE_BACKPRESSURE.
             consecutive_bp = 0
-            # Polite mode: tiles downloaded *this run* (for the per-run budget),
-            # and the highest macro-cell dispatched so far (for the inter-cell rest).
-            run_done = 0
-            max_cell = -1
             logger.info("%s with concurrency=%d (back-off cap %.0fs, give up "
                         "after %s consecutive failures)", self._t_ing, self._concurrency,
                         self._backoff_cap,
                         self._giveup_after if self._giveup_after else "never")
-            if self._max_tiles:
-                logger.info("Per-run tile budget: stop after %d tiles this run.",
-                            self._max_tiles)
-            if self._rest_seconds:
-                logger.info("Resting %.0fs after each macro-cell.", self._rest_seconds)
 
             with ThreadPoolExecutor(max_workers=self._concurrency) as pool:
                 while pending or in_flight:
                     # Fill the pool (pacing each dispatch with the throttle), but
-                    # stop dispatching new tiles once cancelled / circuit-broken /
-                    # over the per-run budget. Already-running fetches are still
-                    # drained below — the pool waits for them on shutdown anyway,
-                    # so we record their results instead of discarding and
-                    # re-fetching (and re-spending a quota tile) next run.
+                    # stop dispatching new tiles once cancelled / circuit-broken.
+                    # Already-running fetches are still drained below — the pool
+                    # waits for them on shutdown anyway, so we record their results
+                    # instead of discarding and re-fetching them next run.
                     while pending and len(in_flight) < self._concurrency \
-                            and not self.isCanceled() and not self.server_gave_up \
-                            and not self.budget_reached:
+                            and not self.isCanceled() and not self.server_gave_up:
                         throttle.wait(self.isCanceled)
                         if self.isCanceled():
                             break
                         tid, tile, attempts, backpressure = pending.popleft()
-                        # Polite mode: rest only when the forward sweep first enters
-                        # a *later* macro-cell. Retries of earlier cells (re-appended
-                        # out of order) have a lower cell index, so they don't rest.
-                        cell = tile.get("cell")
-                        if self._rest_seconds and cell is not None \
-                                and max_cell >= 0 and cell > max_cell:
-                            logger.info("Finished a macro-cell; resting %.0fs.",
-                                        self._rest_seconds)
-                            self._sleep(self._rest_seconds)
-                            if self.isCanceled():
-                                break
-                        if cell is not None and cell > max_cell:
-                            max_cell = cell
                         out_path = os.path.join(tiles_dir, f"tile_{tid:06d}.tif")
                         fut = pool.submit(self._fetch_worker, tile, out_path)
                         in_flight[fut] = [tid, tile, attempts, backpressure]
@@ -921,7 +854,6 @@ class BasemapTileDownloadTask(QgsTask):
                             throttle.on_success()
                             queue.mark_done(tid, path)
                             done_count += 1
-                            run_done += 1          # counts toward the per-run budget
                             consecutive_bp = 0     # a success resets the circuit breaker
                             # DEBUG (file log only): one line per tile would flood
                             # the QGIS Message Log panel; the periodic Checkpoint
@@ -1000,16 +932,6 @@ class BasemapTileDownloadTask(QgsTask):
                                 "remaining tiles and building a partial mosaic from "
                                 "the %d downloaded so far; re-run later to fill the "
                                 "gaps.", consecutive_bp, throttle.status(), done_count)
-
-                        # Per-run tile budget: stop cleanly once we've downloaded
-                        # the requested number of tiles this run, so a daily-quota
-                        # server can be filled over several days (resume continues).
-                        elif self._max_tiles and run_done >= self._max_tiles:
-                            self.budget_reached = True
-                            logger.warning(
-                                "Reached the per-run tile budget (%d tiles this run). "
-                                "Stopping; the rest stay pending — re-run later to "
-                                "continue.", self._max_tiles)
                         if processed % 25 == 0:
                             logger.info("Checkpoint %d/%d (done=%d, failed=%d)",
                                         done_n, total, done_count, failed_count)
@@ -1031,18 +953,12 @@ class BasemapTileDownloadTask(QgsTask):
             n_pending = final_counts.get("pending", 0)
             self.summary = {"total": total, "done": n_done, "failed": n_failed,
                             "cancelled": cancelled,
-                            "server_gave_up": self.server_gave_up,
-                            "budget_reached": self.budget_reached}
+                            "server_gave_up": self.server_gave_up}
             if cancelled:
                 logger.warning(
                     "Cancelled at %d/%d tiles — building a partial mosaic from what "
                     "%s so far (queue checkpointed in %s; re-run to continue).",
                     n_done, total, self._t_past, db_path)
-            elif self.budget_reached:
-                logger.warning(
-                    "Per-run tile budget reached: %d of %d tiles downloaded, %d still "
-                    "pending. Building a partial mosaic; re-run to continue (queue "
-                    "checkpointed in %s).", n_done, total, n_pending, db_path)
             elif self.server_gave_up:
                 logger.warning(
                     "Stopped early (server unavailable): %d of %d tiles downloaded, "
@@ -1166,7 +1082,7 @@ class BasemapTileDownloadTask(QgsTask):
 def run(layer=None, extent=None, extent_crs=None, opts=None, out_crs=None,
         output_path=None, temporary=False, resample="bilinear", clip=False,
         concurrency=None, max_attempts=None, min_delay=None,
-        backoff_cap=None, giveup_after=None, max_tiles=None, rest_seconds=None,
+        backoff_cap=None, giveup_after=None,
         on_finished=None, on_mosaic_start=None):
     """
     Start a download task. The source backend (WMS / XYZ) is auto-detected from
@@ -1181,12 +1097,8 @@ def run(layer=None, extent=None, extent_crs=None, opts=None, out_crs=None,
     fetch phase ends and the mosaic build begins — the progress bar is at 100%
     by then, so the plugin uses it to flash a "building mosaic" message.
 
-    "Polite mode" (both optional): `max_tiles` stops the run after that many
-    tiles are downloaded (0/None = no limit) so a daily-quota server can be
-    filled over several days via resume; `rest_seconds` pauses after each 8×8
-    macro-cell. Tiles are always fetched in macro-cell order so partial results
-    stay spatially contiguous. Each job also caches under its own subdir (keyed
-    by output name), so a different job no longer wipes an in-progress one.
+    Each job caches under its own subdir (keyed by output name), so a different
+    job no longer wipes an in-progress one; an interrupted run resumes on re-run.
     """
     for t in QgsApplication.taskManager().activeTasks():
         if t.description() in TASK_DESCS:
@@ -1239,16 +1151,13 @@ def run(layer=None, extent=None, extent_crs=None, opts=None, out_crs=None,
     cap      = float(backoff_cap) if backoff_cap else MAX_DELAY_SEC
     # giveup_after=0 means "never give up", so distinguish it from None (not set).
     giveup   = MAX_CONSECUTIVE_BACKPRESSURE if giveup_after is None else int(giveup_after)
-    mtiles   = int(max_tiles) if max_tiles else 0        # 0 = no per-run budget
-    rest     = float(rest_seconds) if rest_seconds else 0.0
     # Per-job cache subdir so a different output/extent doesn't wipe this job.
     fp = fingerprint(source, params, opts, extent_wkt, extent_crs)
     ckey = cache_key_for(output_path, temporary, fp)
     task = BasemapTileDownloadTask(source, layer, extent_wkt, extent_crs, params, opts,
                                    native, out_crs, output_path, resample, clip,
                                    conc, attempts, mind, cap, giveup,
-                                   max_tiles=mtiles, rest_seconds=rest, cache_key=ckey,
-                                   on_mosaic_start=on_mosaic_start)
+                                   cache_key=ckey, on_mosaic_start=on_mosaic_start)
 
     def _finished(success):
         release_logger()

@@ -11,8 +11,7 @@ This build:
   local (GDAL) raster such as a GeoTIFF.
 - Tiles the request over the extent — WMS `GetMap` at a chosen resolution or zoom level.
 - Throttles requests adaptively (tuned per source type) and fetches tiles in parallel, with a configurable number of parallel downloads.
-- Tracks progress in a resumable SQLite queue (one per job, kept beside your project), so an interrupted run continues where it left off and a re-run retries any tiles that failed previously.
-- Fetches tiles by walking an 8×8 grid of macro-cells (like panning a map), so a partial result is spatially contiguous. For rate-limited or daily-quota servers a **"polite mode"** can stop after a set number of tiles per run (resume the next day) and rest between cells.
+- Tracks progress in a resumable SQLite queue (one per job, kept beside your project), so an interrupted run continues where it left off and a re-run retries any tiles that failed previously. A cache folder can also be moved or backed up and still resume.
 - Georeferences each tile and mosaics them into a compressed, tiled GeoTIFF (with overviews), optionally reprojected to a chosen output CRS and cropped to the exact extent, then loads it into the project.
 - Single-band rasters (e.g. a DTM) keep their nodata value instead of gaining an alpha band.
 
@@ -168,12 +167,6 @@ Notes:
     this many requests in a row fail with no success (a server refusing a block
     of tiles), then build a partial mosaic from what downloaded and leave the
     rest for a re-run. Set it to 0 (“Never”) to keep only the per-tile limit.
-  - **Stop after (tiles this run)** (default “No limit”) — a per-run tile budget.
-    The run stops after this many tiles, builds a partial mosaic, and leaves the
-    rest pending; re-run to continue. Use it to fill a **daily-quota** server's
-    area over several days.
-  - **Rest after each macro-cell** (default “Off”) — pause this many seconds after
-    each 8×8 macro-cell to ease a server's short-term **burst** limit.
 - If you **cancel** a run, the mosaic is still built from whatever downloaded so
   far (with gaps where tiles are missing), and re-running fills in the rest.
 
@@ -224,18 +217,13 @@ recreate the WMS layer requesting only the sublayer that covers your area, or
 shrink the extent to the covered region. Note the log is rewritten on each run,
 so copy it before re-running if you want to keep the evidence.
 
-**A server rate-limits me, or blocks me after a while ("polite mode").**
-Providers enforce two kinds of limit, and the tools differ:
-- A **short-term burst** limit (a stretch of tiles fails, then it recovers). The
-  adaptive throttle already backs off and retries, but you can ease it further:
-  drop **Parallel downloads** to 1, raise **Minimum delay** (e.g. 2–8 s), and set
-  **Rest after each macro-cell** to pause between cells.
-- A **daily quota** (everything works, then stops for the day). No pacing beats a
-  quota — you have to spread the work across days. Set **Stop after (tiles this
-  run)** to a value under the quota; the run stops, builds a partial mosaic, and
-  leaves the rest pending. Re-run the next day and it continues where it left off
-  (the resumable per-job cache), and because tiles are fetched in macro-cell
-  order each day's partial result is a spatially contiguous block.
+**A server rate-limits me, or blocks me after a while.**
+The adaptive throttle already backs off and retries, but for a strict server you
+can ease it further: drop **Parallel downloads** to 1 and raise **Minimum delay**
+(e.g. 2–8 s) in the Advanced section. If a provider enforces a **daily quota**
+(everything works, then stops for the day), no pacing beats it — spread the work
+across days: run until it stops, then **re-run the next day** and it continues
+where it left off (the resumable per-job cache picks up the pending tiles).
 
 **Can I move, back up, or restore the download cache?**
 Yes. Each export's progress lives in its own subfolder of `__btdcache__/` (next
@@ -288,8 +276,6 @@ engine.run(layer=wms, extent=extent, extent_crs=extent_crs,
            min_delay=0,                    # floor (s) on the pace; 0 = adaptive
            backoff_cap=30,                 # s; adaptive back-off ceiling
            giveup_after=30,                # consecutive failures → stop; 0 = never
-           max_tiles=0,                    # per-run tile budget; 0 = no limit
-           rest_seconds=0,                 # pause after each 8×8 macro-cell; 0 = off
            output_path=r"C:\Users\you\output.tif")  # or temporary=True for a temp file
 ```
 
