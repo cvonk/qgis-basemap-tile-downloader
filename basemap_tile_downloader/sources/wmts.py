@@ -115,6 +115,17 @@ def _first_text(el, name):
     return ""
 
 
+def _kvp_base(caps_url):
+    """Base URL for KVP GetTile requests: strip the WMTS protocol parameters
+    (SERVICE/REQUEST/VERSION — GetTile sets its own) but KEEP everything else,
+    e.g. an API key or token the capabilities URL carries as a query parameter."""
+    p = urllib.parse.urlparse(caps_url)
+    keep = [(k, v) for k, v in urllib.parse.parse_qsl(p.query, keep_blank_values=True)
+            if k.lower() not in ("service", "request", "version")]
+    return urllib.parse.urlunparse(
+        (p.scheme, p.netloc, p.path, "", urllib.parse.urlencode(keep), ""))
+
+
 def prepare(params, opts, logger):
     url = params["caps_url"]
     logger.info("WMTS GetCapabilities → %s", url)
@@ -184,8 +195,7 @@ def prepare(params, opts, logger):
                     break
             break
 
-    p = urllib.parse.urlparse(url)
-    params["kvp_base"]      = urllib.parse.urlunparse((p.scheme, p.netloc, p.path, "", "", ""))
+    params["kvp_base"]      = _kvp_base(url)
     params["rest_template"] = rest
     params["matrices"]      = matrices
     params["tms_crs"]       = tms_crs
@@ -267,12 +277,14 @@ def fetch_one_tile(params, opts, tile, out_path, logger):
         logger.info("FIRST TILE URL (paste into a browser to verify): %s", url)
 
     status, headers, body, err, timed_out = engine.blocking_get(url)
+    # Order matters: any HTTP status >= 400 ALSO sets `err`
+    # (QgsBlockingNetworkRequest reports it as ServerExceptionError), so the
+    # status-specific handling must run before the generic network-error raise —
+    # otherwise the throttle/back-off (and Retry-After) paths are unreachable.
     if timed_out:
         raise TileFetchError("Request timed out.")
-    if err and status not in (404, 204):
-        raise TileFetchError(f"Network error: {err}")
-    if status in (404, 204) or not body:
-        return None
+    if status in (404, 204):
+        return None                       # missing tile → legitimate gap
     if status in (429, 403):
         raise TileFetchError(f"HTTP {status} (rate-limited?).",
                              retry_after=engine.parse_retry_after(headers.get("retry-after")),
@@ -283,6 +295,10 @@ def fetch_one_tile(params, opts, tile, out_path, logger):
                              is_throttle=True)
     if status and status >= 400:
         raise TileFetchError(f"HTTP {status}.")
+    if err:                               # network-level failure (no HTTP status)
+        raise TileFetchError(f"Network error: {err}")
+    if not body:
+        return None                       # empty 2xx body → treat as a gap
 
     ulx = mat["topx"] + tile["col"] * mat["tsx"]
     uly = mat["topy"] - tile["row"] * mat["tsy"]

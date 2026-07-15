@@ -72,8 +72,12 @@ def default_out_crs(params):
     return params["crs"]
 
 def fingerprint_parts(params, opts):
+    # The grid resolution is the raster's own (build_tile_grid ignores
+    # opts["resolution"] — the dialog greys that spinbox out, and it is a setting
+    # shared with WMS), so fingerprint on native_res: otherwise running a WMS job
+    # at a different resolution would needlessly wipe a GeoTIFF job's cache.
     return [params["path"], params["crs"],
-            opts.get("tile_pixels"), opts.get("resolution")]
+            opts.get("tile_pixels"), params.get("native_res")]
 
 
 def _preserve_nodata(params):

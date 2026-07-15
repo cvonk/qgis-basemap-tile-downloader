@@ -124,11 +124,13 @@ def fetch_one_tile(params, opts, tile, out_path, logger):
         logger.info("FIRST TILE URL (paste into a browser to verify): %s", url)
 
     status, headers, body, err, timed_out = engine.blocking_get(url)
+    # Order matters: any HTTP status >= 400 ALSO sets `err`
+    # (QgsBlockingNetworkRequest reports it as ServerExceptionError), so the
+    # status-specific handling must run before the generic network-error raise —
+    # otherwise the throttle/back-off (and Retry-After) paths are unreachable.
     if timed_out:
         raise TileFetchError("Request timed out.")
-    if err and status not in (404, 204):
-        raise TileFetchError(f"Network error: {err}")
-    if status in (404, 204) or not body:
+    if status in (404, 204):
         return None                       # missing tile → legitimate gap
     if status in (429, 403):
         # Some tile servers use 403 to signal rate-limiting / over-use, so treat
@@ -143,6 +145,10 @@ def fetch_one_tile(params, opts, tile, out_path, logger):
                              is_throttle=True)
     if status and status >= 400:
         raise TileFetchError(f"HTTP {status}.")
+    if err:                               # network-level failure (no HTTP status)
+        raise TileFetchError(f"Network error: {err}")
+    if not body:
+        return None                       # empty 2xx body → treat as a gap
 
     bounds  = tile_bounds_3857(tile["x"], tile["y"], tile["z"])
     problem = engine.georeference(body, out_path, bounds, WEBMERC)

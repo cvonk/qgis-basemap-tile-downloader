@@ -4,7 +4,7 @@ qgisMinimumVersion=3.40.8
 qgisMaximumVersion=4.99
 description=Download a WMS, WMTS, or XYZ basemap over an extent and mosaic it into a GeoTIFF.
 about=Auto-detects whether the chosen layer is a WMS, WMTS, or XYZ tile source. Tiles the request over a chosen extent (WMS GetMap at a chosen resolution/CRS, or WMTS / Web-Mercator {z}/{x}/{y} at a chosen zoom), downloads with adaptive throttling and a resumable SQLite work queue, georeferences each tile, and builds a compressed, tiled GeoTIFF mosaic (with overviews) using GDAL. Optionally reprojects to a chosen output CRS and crops to the exact extent. Requires the GDAL Python bindings. For personal and educational use only — respect each provider's Terms of Service and usage limits.
-version=1.8.0
+version=1.8.1
 author=Coert Vonk
 email=ing.c.j.s.vonk@gmail.com
 license=GPL-3.0-or-later
@@ -16,7 +16,17 @@ experimental=False
 deprecated=False
 category=Raster
 tags=wms,wmts,xyz,tiles,download,raster,mosaic,gdal,basemap,orthophoto,aoi,web mercator
-changelog=1.8.0 - The mosaic is now built only when every tile is downloaded.
+changelog=1.8.1 - Fixed server rate-limiting handling, which never engaged: a
+    429/403/500/503 reply was misread as a plain network error, so the adaptive
+    throttle never backed off, Retry-After was ignored, and rate-limited tiles
+    burned their retry budget at full speed and failed. Those replies are now
+    correctly treated as back-pressure. Also fixed: WMTS KVP requests kept an API
+    key carried in the capabilities URL; a GeoTIFF job no longer wipes its cache
+    when an unrelated WMS resolution changes; starting a second run while one is
+    active now warns instead of falsely reporting a download started; an invalid
+    mosaic is reported as an error instead of "all tiles are empty"; and
+    "Reproject sampling: None" keeps the WMTS CRS resolved from the capabilities.
+    1.8.0 - The mosaic is now built only when every tile is downloaded.
     A cancelled run, a server that stops the run early, or one with failed tiles
     no longer produces a partial mosaic with gaps; progress is checkpointed and
     re-running continues where it left off, building the mosaic once the last tile

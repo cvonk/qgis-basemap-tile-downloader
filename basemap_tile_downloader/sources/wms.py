@@ -303,10 +303,12 @@ def fetch_one_tile(params, opts, tile, out_path, logger):
         logger.info("FIRST TILE URL (paste into a browser to verify): %s", url)
 
     status, headers, body, err, timed_out = engine.blocking_get(url)
+    # Order matters: any HTTP status >= 400 ALSO sets `err`
+    # (QgsBlockingNetworkRequest reports it as ServerExceptionError), so the
+    # status-specific handling must run before the generic network-error raise —
+    # otherwise the throttle/back-off (and Retry-After) paths are unreachable.
     if timed_out:
         raise TileFetchError("Request timed out.")
-    if err:
-        raise TileFetchError(f"Network error: {err}")
     if status == 429:
         raise TileFetchError("HTTP 429.",
                              retry_after=engine.parse_retry_after(headers.get("retry-after")),
@@ -317,6 +319,8 @@ def fetch_one_tile(params, opts, tile, out_path, logger):
                              is_throttle=True)
     if status and status >= 400:
         raise TileFetchError(f"HTTP {status}.")
+    if err:                               # network-level failure (no HTTP status)
+        raise TileFetchError(f"Network error: {err}")
     if _is_xml_exception(body):
         # A ServiceException is usually the provider's server failing to draw
         # (e.g. it momentarily can't read its own data file) — often transient.

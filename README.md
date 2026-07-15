@@ -19,7 +19,7 @@ the resolution you choose.
 - **Skips redundant downloads** — overlapping jobs (XYZ/WMTS/WMS) reuse tiles from a shared cache, sparing both time and your provider's quota.
 - **Finishes clean** — a compressed, tiled GeoTIFF with overviews, optionally reprojected and cropped to the exact extent, loaded straight into your project. Single-band rasters (e.g. a DTM) keep their nodata instead of gaining an alpha band.
 
-Requires the GDAL Python bindings (bundled with QGIS). Written for QGIS 3.40.8; also runs on QGIS 4.2.
+Requires the GDAL Python bindings (bundled with QGIS). Written for QGIS 3.40.8 and QGIS 4.2.
 
 > **Note:** This plugin is intended for personal and educational use only. Bulk-downloading tiles may violate a provider's Terms of Service (e.g. Google, Bing, Esri). Make sure your intended use is permitted, and respect each provider's usage limits, before downloading.
 

@@ -44,6 +44,14 @@ class BasemapTileDownloaderPlugin:
         self.action = None
 
     def show_dialog(self):
+        # One run at a time: tell the user up front rather than letting them fill
+        # in the dialog only to have engine.run() refuse the task afterwards.
+        if engine.active_task() is not None:
+            self.iface.messageBar().pushWarning(
+                MENU_TITLE, "A download/export is already running — cancel it in "
+                            "the Task Manager first to start another.")
+            return
+
         dlg = BasemapTileDialog(self.iface.mapCanvas(), self.iface.mainWindow())
         if not dlg.exec():
             return
@@ -61,17 +69,32 @@ class BasemapTileDownloaderPlugin:
             return
 
         try:
+            # Re-check just before starting: a run may have been started (e.g.
+            # from the Python console) while the dialog was open. engine.run()
+            # would refuse it and return the running task, and the "started"
+            # message below would then be a lie.
+            if engine.active_task() is not None:
+                self.iface.messageBar().pushWarning(
+                    MENU_TITLE, "A download/export is already running — cancel it "
+                                "in the Task Manager first to start another.")
+                return
             local = getattr(engine.source_for(layer), "LOCAL", False)
             self._progress_verb = "Reading" if local else "Downloading"
             self._clear_progress()          # drop any counter left from a prior run
-            engine.run(layer=layer, extent=extent, extent_crs=extent_crs, opts=opts,
-                       out_crs=out_crs, output_path=output_path, temporary=temporary,
-                       resample=resample, clip=clip, concurrency=concurrency,
-                       max_attempts=max_attempts, min_delay=min_delay,
-                       backoff_cap=backoff_cap, giveup_after=giveup_after,
-                       on_finished=self._on_run_finished,
-                       on_mosaic_start=self._on_mosaic_start,
-                       on_tile_progress=self._on_tile_progress)
+            task = engine.run(layer=layer, extent=extent, extent_crs=extent_crs,
+                              opts=opts, out_crs=out_crs, output_path=output_path,
+                              temporary=temporary, resample=resample, clip=clip,
+                              concurrency=concurrency, max_attempts=max_attempts,
+                              min_delay=min_delay, backoff_cap=backoff_cap,
+                              giveup_after=giveup_after,
+                              on_finished=self._on_run_finished,
+                              on_mosaic_start=self._on_mosaic_start,
+                              on_tile_progress=self._on_tile_progress)
+            if task is None:    # refused (bad layer params, …) — details in the log
+                self.iface.messageBar().pushCritical(
+                    MENU_TITLE, "Could not start — see the Log Messages panel "
+                                "(Basemap Tile Downloader tab) for details.")
+                return
             self._raise_log_panel()
             # A local raster is read/exported, not downloaded.
             started = "Export" if local else "Download"

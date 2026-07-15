@@ -5,6 +5,46 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+## [1.8.1] - 2026-07-15
+### Fixed
+- **Server rate-limiting was never handled.** `QgsBlockingNetworkRequest` reports
+  *any* HTTP status ≥ 400 as an error (`ServerExceptionError`), and the generic
+  network-error check ran before the status checks — so the `429` / `403` /
+  `500` / `503` branches in every source backend were unreachable. A throttled
+  reply was misread as a plain tile error: the adaptive throttle never backed off
+  (it kept *speeding up* on other successes), `Retry-After` was ignored, the
+  run-level circuit breaker never saw the failures, and rate-limited tiles burned
+  their retry budget at full speed and were marked permanently failed. Those
+  statuses are now correctly classified as back-pressure. Only timeouts and
+  HTTP-200 WMS `ServiceException`s worked before.
+- **WMTS KVP `GetTile` dropped an API key** carried as a query parameter in the
+  capabilities URL. The KVP base now strips only the WMTS protocol parameters
+  (`SERVICE`/`REQUEST`/`VERSION`) and preserves the rest.
+- **A GeoTIFF job's cache was wiped by unrelated WMS settings.** Its fingerprint
+  included the resolution spinbox — which the export ignores (it uses the
+  raster's native resolution) and which is shared with WMS, so changing the WMS
+  resolution invalidated the GeoTIFF queue. It now fingerprints on `native_res`.
+- **Starting a run while one was active falsely reported "Download started"**,
+  silently discarding the new settings. The plugin now warns before opening the
+  dialog, re-checks before starting, and reports a refused start.
+- **An invalid mosaic reported "All N tiles are empty — no data to mosaic"**
+  instead of the real error, which only reached the log.
+- **Reproject sampling: None** now keeps the WMTS CRS resolved from the
+  capabilities, rather than warping to the layer's pre-`prepare` CRS guess.
+- The `User-Agent` reported a hardcoded `1.0` instead of the plugin version, and
+  a queue wipe left a stale `cutline.gpkg` behind.
+
+### Added
+- Unit tests pinning how each backend classifies an HTTP response (throttle vs
+  gap vs error, and `Retry-After`), plus the WMTS KVP URL behaviour. They run
+  without QGIS via stub modules, so CI covers them.
+
+### Changed
+- Documented the full source-module contract in `engine.py` — the optional hooks
+  (`LOCAL`, `CONCURRENCY`, `INITIAL_DELAY_SEC`, `SHAREABLE`, `shared_signature`,
+  `shared_rel_path`, `mosaic_hints`) the engine dispatches on were missing — and
+  `run()`'s `on_tile_progress` callback and return values.
+
 ## [1.8.0] - 2026-07-14
 ### Changed
 - **The mosaic is built only when every tile is downloaded.** Previously an

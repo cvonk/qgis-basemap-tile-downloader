@@ -8,16 +8,31 @@ work queue, tile georeferencing, GDAL mosaicking, and the QgsTask that drives a
 run. The WMS- and XYZ-specific bits live in sources/wms.py and sources/xyz.py;
 this module dispatches to whichever one matches the chosen layer.
 
-A "source" module exposes:
+A "source" module exposes (required):
     SOURCE_NAME
     detect(layer) -> bool
     extract_params(layer) -> dict
-    prepare(params, opts, logger) -> None        # optional (WMS caps/format)
     native_crs(params, opts) -> str
     default_out_crs(params) -> str
     build_tile_grid(extent_geom, extent_crs, params, opts, logger) -> list[dict]  # each has "id"
-    fetch_one_tile(params, opts, tile, out_path, logger) -> path|None
+    fetch_one_tile(params, opts, tile, out_path, logger) -> path|None   # None = empty tile (gap)
     fingerprint_parts(params, opts) -> list
+
+and may also define (optional):
+    prepare(params, opts, logger) -> None    # pre-run setup (WMS format negotiation,
+                                             # WMTS capabilities); may refine native_crs
+    LOCAL = True                             # local read, not a download: changes the
+                                             # task description and user-facing wording
+    CONCURRENCY = n                          # source-preferred parallel fetches
+    INITIAL_DELAY_SEC = s                    # starting pace for the adaptive throttle
+    SHAREABLE = True                         # tiles have a global identity, reusable
+                                             # across jobs via the shared cache; requires:
+    shared_signature(params, opts) -> str    #   identity of the tile *source/grid*
+    shared_rel_path(tile) -> str|None        #   tile's path under the shared dir
+                                             #   (None = legacy tile, keep per-job)
+    mosaic_hints(params, opts) -> dict       # {"add_alpha": bool, "nodata": value} —
+                                             # single-band data keeps nodata instead
+                                             # of gaining an alpha band
 """
 
 import os, re, json, sqlite3, logging, time, traceback, hashlib, uuid, configparser
@@ -89,6 +104,10 @@ def _plugin_version():
         return cp.get("general", "version", fallback="").strip()
     except Exception:
         return ""
+
+
+# Identify ourselves to servers with the real plugin version (not a stale "1.0").
+USER_AGENT = f"QGIS-Basemap-Tile-Downloader/{_plugin_version() or 'dev'}"
 
 
 def _first_line(s, limit=200):
@@ -187,7 +206,7 @@ def blocking_get(url, timeout_ms=REQUEST_TIMEOUT_MS):
     req    = QgsBlockingNetworkRequest()
     qt_req = QNetworkRequest(QUrl(url))
     qt_req.setHeader(QNetworkRequest.KnownHeaders.UserAgentHeader,
-                     b"QGIS-Basemap-Tile-Downloader/1.0")
+                     USER_AGENT.encode("ascii", "replace"))
     try:
         qt_req.setTransferTimeout(int(timeout_ms))    # Qt 5.15+ (QGIS 3.16+)
     except (AttributeError, TypeError):
@@ -389,7 +408,7 @@ class TileQueue:
                 stored_fp, current_fp)
             self.close()
             for name in ("tiles.sqlite", "tiles.sqlite-wal", "tiles.sqlite-shm",
-                         "mosaic.vrt", "mosaic.tif"):
+                         "mosaic.vrt", "mosaic.tif", "cutline.gpkg"):
                 try: os.remove(os.path.join(work_dir, name))
                 except OSError: pass
             tiles_dir = os.path.join(work_dir, "tiles")
@@ -819,6 +838,7 @@ class BasemapTileDownloadTask(QgsTask):
         _ACTIVE_TASKS.discard(self)     # release the strong ref kept in run()
         release_logger()
         loaded = False
+        load_error = None
         tif = self.result_tif_path
         # Load the mosaic whenever one was produced — including a partial mosaic
         # from a cancelled run — so the user can see the gaps.
@@ -830,9 +850,12 @@ class BasemapTileDownloadTask(QgsTask):
                 loaded = True
                 print(f"[Basemap Tile Downloader] Mosaic loaded: {tif}")
             else:
-                msg = f"Mosaic file invalid: {tif}"
-                print(f"[Basemap Tile Downloader] WARNING: {msg}")
-                QgsMessageLog.logMessage(msg, LOG_TAB, Qgis.Critical)
+                # Surface this through the result dict too — otherwise the
+                # completion message would fall into the "all tiles empty" branch
+                # and mislead the user about what actually went wrong.
+                load_error = f"Mosaic file invalid: {tif}"
+                print(f"[Basemap Tile Downloader] WARNING: {load_error}")
+                QgsMessageLog.logMessage(load_error, LOG_TAB, Qgis.Critical)
         elif not result and not self.was_cancelled:
             msg = str(self.exception) if self.exception else "Task failed."
             print(f"[Basemap Tile Downloader] FAILED: {msg}")
@@ -849,7 +872,7 @@ class BasemapTileDownloadTask(QgsTask):
                     "tif":       tif,
                     "summary":   self.summary or {},
                     "error":     (str(self.exception)
-                                  if (not result and self.exception) else None),
+                                  if (not result and self.exception) else load_error),
                 })
             except Exception:  # nosec B110
                 pass
@@ -870,8 +893,12 @@ class BasemapTileDownloadTask(QgsTask):
         if callable(prepare):
             prepare(self._params, self._opts, logger)
             # A backend may resolve its native CRS during prepare (e.g. WMTS
-            # reads it from the capabilities), so refresh it now.
+            # reads it from the capabilities), so refresh it now. With resample
+            # "none" the output CRS must keep tracking the native CRS ("no
+            # reprojection"), or the mosaic step would warp to the stale guess.
             self._native_crs = self._source.native_crs(self._params, self._opts)
+            if self._resample == "none":
+                self._out_crs = self._native_crs
 
         tiles = self._source.build_tile_grid(
             extent_geom, self._extent_crs, self._params, self._opts, logger)
@@ -1238,6 +1265,16 @@ class BasemapTileDownloadTask(QgsTask):
 # ─────────────────────────────────────────────
 # ENTRY POINT
 # ─────────────────────────────────────────────
+def active_task():
+    """The currently-running Basemap Tile Downloader task, or None. The plugin
+    checks this before showing the dialog, so the user is told up front instead
+    of filling in settings that run() would then refuse."""
+    for t in QgsApplication.taskManager().activeTasks():
+        if t.description() in TASK_DESCS:
+            return t
+    return None
+
+
 def run(layer=None, extent=None, extent_crs=None, opts=None, out_crs=None,
         output_path=None, temporary=False, resample="bilinear", clip=False,
         concurrency=None, max_attempts=None, min_delay=None,
@@ -1256,16 +1293,24 @@ def run(layer=None, extent=None, extent_crs=None, opts=None, out_crs=None,
     fetch phase ends and the mosaic build begins — the progress bar is at 100%
     by then, so the plugin uses it to flash a "building mosaic" message.
 
+    `on_tile_progress`, if given, is called on the main thread as tiles resolve
+    with (done, total) — throttled to a few times per second, with the final
+    tile always delivered. The plugin uses it for the live message-bar counter.
+
+    Returns the started QgsTask; the already-running task if one is active (no
+    new task is started); or None if the job could not be started (unrecognised
+    layer, no extent, bad source params — details in the QGIS message log).
+
     Each job caches under its own subdir (keyed by output name), so a different
     job no longer wipes an in-progress one; an interrupted run resumes on re-run.
     """
-    for t in QgsApplication.taskManager().activeTasks():
-        if t.description() in TASK_DESCS:
-            msg = ("A Basemap Tile Downloader task is already running; not starting "
-                   "another. Cancel it in the Task Manager first to restart.")
-            print(f"[Basemap Tile Downloader] {msg}")
-            QgsMessageLog.logMessage(msg, LOG_TAB, Qgis.Warning)
-            return t
+    t = active_task()
+    if t is not None:
+        msg = ("A Basemap Tile Downloader task is already running; not starting "
+               "another. Cancel it in the Task Manager first to restart.")
+        print(f"[Basemap Tile Downloader] {msg}")
+        QgsMessageLog.logMessage(msg, LOG_TAB, Qgis.Warning)
+        return t
 
     source = source_for(layer)
     if source is None:
