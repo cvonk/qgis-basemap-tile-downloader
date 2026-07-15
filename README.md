@@ -2,21 +2,24 @@
 
 [![CI](https://github.com/cvonk/qgis-basemap-tile-downloader/actions/workflows/ci.yml/badge.svg)](https://github.com/cvonk/qgis-basemap-tile-downloader/actions/workflows/ci.yml)
 
-A QGIS plugin that exports a high-resolution GeoTIFF from an online **WMS**, **WMTS**, or
-**XYZ** basemap — or from a **local raster** (e.g. a GeoTIFF already loaded in
-the project) — over a chosen rectangular extent.
+**Turn any online basemap into a georeferenced GeoTIFF of exactly the area you need.**
 
-This build:
-- Auto-detects whether the chosen layer is a WMS, WMTS, or XYZ tile source, or a
-  local (GDAL) raster such as a GeoTIFF.
-- Tiles the request over the extent — WMS `GetMap` at a chosen resolution, or XYZ/WMTS at a chosen zoom level.
-- Throttles requests adaptively (tuned per source type) and fetches tiles in parallel, with a configurable number of parallel downloads.
-- Tracks progress in a resumable SQLite queue (one per job, kept beside your project), so an interrupted run continues where it left off and a re-run retries any tiles that failed previously. A cache folder can also be moved or backed up and still resume.
-- Reuses tiles across overlapping jobs (XYZ/WMTS/WMS) from a shared cache, so a second area that overlaps an earlier one skips re-downloading the shared tiles — and the provider-quota hit.
-- Georeferences each tile and mosaics them into a compressed, tiled GeoTIFF (with overviews), optionally reprojected to a chosen output CRS and cropped to the exact extent, then loads it into the project.
-- Single-band rasters (e.g. a DTM) keep their nodata value instead of gaining an alpha band.
+Point it at a **WMS**, **WMTS**, or **XYZ** service — or a **local raster** already
+loaded in your project — draw an extent, and the plugin fetches, georeferences, and
+mosaics the tiles into a single compressed, overview-tiled GeoTIFF, ready for your
+map, your analysis, or your 3-D scene. Pull a 0.5 m orthophoto over one valley, or
+clip a national 10 m DTM to your study area — you get just the pixels you want, at
+the resolution you choose.
 
-Requires the GDAL Python bindings (bundled with QGIS). Originally written for QGIS 3.40.8.  Tested in QGIS 4.2.0.
+### What it does
+- **Auto-detects the source** — WMS, WMTS, XYZ, or a local GDAL raster; no need to tell it which.
+- **Tiles your extent** — WMS `GetMap` at a chosen resolution, or XYZ/WMTS at a chosen zoom.
+- **Plays nice with servers** — adaptive, per-source throttling and parallel fetches: fast when it can be, gentle when it must be.
+- **Never loses work** — a resumable SQLite queue picks an interrupted run back up exactly where it left off, and the cache can be moved or backed up.
+- **Skips redundant downloads** — overlapping jobs (XYZ/WMTS/WMS) reuse tiles from a shared cache, sparing both time and your provider's quota.
+- **Finishes clean** — a compressed, tiled GeoTIFF with overviews, optionally reprojected and cropped to the exact extent, loaded straight into your project. Single-band rasters (e.g. a DTM) keep their nodata instead of gaining an alpha band.
+
+Requires the GDAL Python bindings (bundled with QGIS). Written for QGIS 3.40.8; also runs on QGIS 4.2.
 
 > **Note:** This plugin is intended for personal and educational use only. Bulk-downloading tiles may violate a provider's Terms of Service (e.g. Google, Bing, Esri). Make sure your intended use is permitted, and respect each provider's usage limits, before downloading.
 
