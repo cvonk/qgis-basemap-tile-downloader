@@ -154,7 +154,9 @@ def build_tile_grid(extent_geom, extent_crs, params, opts, logger):
 # ─────────────────────────────────────────────
 # FETCH  (windowed read of the local file)
 # ─────────────────────────────────────────────
-def fetch_one_tile(params, opts, tile, out_path, logger):
+def fetch_one_tile(params, opts, tile, out_path, logger, attempt=0):
+    # `attempt` (retry cache-buster) is unused: this is a local raster read,
+    # not a network fetch, so there is no server-side cache to bust.
     if gdal is None:
         raise DownloaderError("GDAL bindings unavailable; cannot read the raster.")
     tile_pixels = int(opts.get("tile_pixels", 1024))

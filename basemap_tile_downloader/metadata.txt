@@ -4,7 +4,7 @@ qgisMinimumVersion=3.40.8
 qgisMaximumVersion=4.99
 description=Download a WMS, WMTS, or XYZ basemap over an extent and mosaic it into a GeoTIFF.
 about=Auto-detects whether the chosen layer is a WMS, WMTS, or XYZ tile source. Tiles the request over a chosen extent (WMS GetMap at a chosen resolution/CRS, or WMTS / Web-Mercator {z}/{x}/{y} at a chosen zoom), downloads with adaptive throttling and a resumable SQLite work queue, georeferences each tile, and builds a compressed, tiled GeoTIFF mosaic (with overviews) using GDAL. Optionally reprojects to a chosen output CRS and crops to the exact extent. Requires the GDAL Python bindings. For personal and educational use only — respect each provider's Terms of Service and usage limits.
-version=1.8.1
+version=1.9.0
 author=Coert Vonk
 email=ing.c.j.s.vonk@gmail.com
 license=GPL-3.0-or-later
@@ -16,7 +16,15 @@ experimental=False
 deprecated=False
 category=Raster
 tags=wms,wmts,xyz,tiles,download,raster,mosaic,gdal,basemap,orthophoto,aoi,web mercator
-changelog=1.8.1 - Fixed server rate-limiting handling, which never engaged: a
+changelog=1.9.0 - New option "Build mosaic even if some tiles are missing" (off
+    by default): an interrupted or partly-failed run can stitch a mosaic from
+    whatever downloaded, leaving the missing tiles as transparent gaps, and a
+    later re-run with the option off still fills them and rebuilds it complete.
+    Fixed: WMS retries could not get past a server error cached by a CDN/proxy
+    (a ServiceException is returned as HTTP 200, so a byte-identical retry
+    replayed the cached failure); each retry now adds a throwaway cache-buster
+    to the GetMap request so the server actually re-renders.
+    1.8.1 - Fixed server rate-limiting handling, which never engaged: a
     429/403/500/503 reply was misread as a plain network error, so the adaptive
     throttle never backed off, Retry-After was ignored, and rate-limited tiles
     burned their retry budget at full speed and failed. Those replies are now

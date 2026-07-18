@@ -223,12 +223,23 @@ class BasemapTileDialog(QDialog):
         self.resample_combo.addItem("None (keep native CRS, no reprojection)", "none")
         self.resample_combo.currentIndexChanged.connect(self._sync_resample)
         self.out_widget = OutputDestinationWidget()
+        # Off by default: normally the mosaic is built only once every tile is in
+        # (an interrupted run resumes on re-run). Tick this to stitch whatever
+        # downloaded now, leaving the missing tiles as gaps.
+        self.partial_check = QCheckBox("Build mosaic even if some tiles are missing")
+        self.partial_check.setToolTip(
+            "Off (default): an interrupted or partly-failed run produces no "
+            "output; progress is saved and re-running finishes it.\n"
+            "On: build the mosaic from whatever downloaded, leaving the missing "
+            "tiles as transparent gaps. A later re-run (with this off) still "
+            "fills them and rebuilds without gaps.")
         self.output_group = QgsCollapsibleGroupBox("Output")
         self.output_group.setCollapsed(False)
         oform = QFormLayout(self.output_group)
         oform.addRow("Reproject sampling:", self.resample_combo)
         oform.addRow("Output CRS:", self.crs_widget)
         oform.addRow("Output:", self.out_widget)
+        oform.addRow("", self.partial_check)
         form.addRow(self.output_group)
 
         # Advanced options — created here, placed in a collapsible group below.
@@ -506,6 +517,7 @@ class BasemapTileDialog(QDialog):
         if r >= 0:
             self.resample_combo.setCurrentIndex(r)
         self.clip_check.setChecked(s.value(f"{g}/clip", False, type=bool))
+        self.partial_check.setChecked(s.value(f"{g}/partial_mosaic", False, type=bool))
 
         # Set the layers first (this fires _on_layer_changed, which may default
         # the output CRS to the source's native CRS)…
@@ -552,6 +564,7 @@ class BasemapTileDialog(QDialog):
         s.setValue(f"{g}/output_path", self.out_widget.file_path() or "")
         s.setValue(f"{g}/resample", self.resample_combo.currentData())
         s.setValue(f"{g}/clip", self.clip_check.isChecked())
+        s.setValue(f"{g}/partial_mosaic", self.partial_check.isChecked())
         s.setValue(f"{g}/concurrency", self.conc_spin.value())
         s.setValue(f"{g}/max_attempts", self.attempts_spin.value())
         s.setValue(f"{g}/min_delay", self.min_delay_spin.value())
@@ -675,9 +688,10 @@ class BasemapTileDialog(QDialog):
         min_delay = self.min_delay_spin.value()
         backoff_cap = self.backoff_cap_spin.value()
         giveup_after = self.giveup_spin.value()
+        partial_mosaic = self.partial_check.isChecked()
         valid = self.extent_widget.isValid()
         extent = self.extent_widget.outputExtent() if valid else None
         extent_crs = self.extent_widget.outputCrs().authid() if valid else None
         return (layer, extent, extent_crs, opts, out_crs, out_path, temporary,
                 resample, clip, concurrency, max_attempts, min_delay,
-                backoff_cap, giveup_after)
+                backoff_cap, giveup_after, partial_mosaic)

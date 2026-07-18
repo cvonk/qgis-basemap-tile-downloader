@@ -239,7 +239,7 @@ def build_tile_grid(extent_geom, extent_crs, params, opts, logger):
 YX_CRS = {"EPSG:4326", "CRS:84", "EPSG:4258"}
 
 
-def _getmap_url(params, opts, tile):
+def _getmap_url(params, opts, tile, attempt=0):
     tile_pixels = int(opts.get("tile_pixels", 1024))
     p  = list(urllib.parse.urlparse(params["url"]))
     q  = dict(urllib.parse.parse_qsl(p[4], keep_blank_values=True))
@@ -273,6 +273,17 @@ def _getmap_url(params, opts, tile):
                 "tilepixelratio", "contextualwmslegend", "featurecount", "dpimode"):
             s(k, v)
 
+    # Retry cache-buster. A WMS ServiceException comes back as HTTP 200 with an
+    # error body, so a caching layer in front of the server (CDN/Varnish) can
+    # cache it and serve that same error to every byte-identical retry — our
+    # resume would then re-request the exact URL and never break through. On a
+    # retry (attempt > 0) add a throwaway, per-attempt parameter so the request
+    # key differs and the server actually re-renders. MapServer (and WMS in
+    # general) ignores unknown params, so the pixels are unaffected. The first
+    # attempt stays clean, so a genuinely-cached good tile is still reused.
+    if attempt > 0:
+        q["_btd_cb"] = str(attempt)
+
     p[4] = urllib.parse.urlencode(q)
     return urllib.parse.urlunparse(p)
 
@@ -296,8 +307,8 @@ def _parse_exception(body):
     return "; ".join(msgs) if msgs else ET.tostring(root, encoding="unicode")[:500]
 
 
-def fetch_one_tile(params, opts, tile, out_path, logger):
-    url = _getmap_url(params, opts, tile)
+def fetch_one_tile(params, opts, tile, out_path, logger, attempt=0):
+    url = _getmap_url(params, opts, tile, attempt)
     logger.debug("GetMap tile %d: %s", tile["id"], url)
     if tile["id"] == 0:
         logger.info("FIRST TILE URL (paste into a browser to verify): %s", url)

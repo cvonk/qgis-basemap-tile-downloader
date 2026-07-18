@@ -15,7 +15,10 @@ A "source" module exposes (required):
     native_crs(params, opts) -> str
     default_out_crs(params) -> str
     build_tile_grid(extent_geom, extent_crs, params, opts, logger) -> list[dict]  # each has "id"
-    fetch_one_tile(params, opts, tile, out_path, logger) -> path|None   # None = empty tile (gap)
+    fetch_one_tile(params, opts, tile, out_path, logger, attempt=0) -> path|None
+                                             # None = empty tile (gap). attempt is
+                                             # the retry count (0 on the first try);
+                                             # a source may use it as a cache-buster.
     fingerprint_parts(params, opts) -> list
 
 and may also define (optional):
@@ -741,8 +744,8 @@ class BasemapTileDownloadTask(QgsTask):
                  clip=False, concurrency=CONCURRENCY,
                  max_attempts=MAX_ATTEMPTS_PER_TILE, min_delay=0.0,
                  backoff_cap=MAX_DELAY_SEC, giveup_after=MAX_CONSECUTIVE_BACKPRESSURE,
-                 cache_key=None, on_mosaic_start=None, on_finished=None,
-                 on_tile_progress=None):
+                 partial_ok=False, cache_key=None, on_mosaic_start=None,
+                 on_finished=None, on_tile_progress=None):
         # Silent: suppress QGIS's own task-finished/terminated notifications — the
         # plugin posts its own completion (and error) messages, so QGIS's generic
         # one is just noise, especially after a failure. (Silent needs QGIS 3.26+;
@@ -778,6 +781,12 @@ class BasemapTileDownloadTask(QgsTask):
         # circuit-breaker threshold (0 = never give up, only the per-tile limit).
         self._backoff_cap  = max(self._min_delay, float(backoff_cap or MAX_DELAY_SEC))
         self._giveup_after = max(0, int(giveup_after))
+        # Build a mosaic from whatever downloaded even when tiles are missing
+        # (cancelled / failed / server gave up), leaving the gaps unfilled. Off
+        # by default: a run normally defers the mosaic until every tile is in.
+        # The queue is still checkpointed either way, so a later re-run can fill
+        # the gaps and rebuild complete.
+        self._partial_ok   = bool(partial_ok)
 
         # Each job gets its own cache subdir (keyed by the output name, or the
         # job fingerprint for a temporary output), so downloading a different
@@ -998,7 +1007,11 @@ class BasemapTileDownloadTask(QgsTask):
                             break
                         tid, tile, attempts, backpressure = pending.popleft()
                         out_path = os.path.join(tiles_dir, f"tile_{tid:06d}.tif")
-                        fut = pool.submit(self._fetch_worker, tile, out_path)
+                        # attempts + backpressure = retries so far (0 on the first
+                        # try, then strictly increasing per retry): a per-attempt
+                        # cache-buster for sources that support one (see WMS).
+                        fut = pool.submit(self._fetch_worker, tile, out_path,
+                                          attempts + backpressure)
                         in_flight[fut] = [tid, tile, attempts, backpressure]
 
                     if not in_flight:
@@ -1125,10 +1138,13 @@ class BasemapTileDownloadTask(QgsTask):
             # which reports no progress of its own and can take a while.
             self.setProgress(100.0)
 
-            # Build the mosaic only once EVERY tile is downloaded. An interrupted
-            # run (cancel or server give-up) or one with failed/pending tiles
-            # leaves the queue checkpointed and defers the mosaic — re-run to
-            # continue, and it builds when the last tile lands.
+            # By default the mosaic is built only once EVERY tile is downloaded:
+            # an interrupted run (cancel or server give-up) or one with failed/
+            # pending tiles leaves the queue checkpointed and defers the mosaic —
+            # re-run to continue, and it builds when the last tile lands. With
+            # "build partial" on, a mosaic is instead built from whatever is
+            # present, leaving the missing tiles as gaps (the queue is still
+            # checkpointed, so a later complete re-run rebuilds it without gaps).
             cancelled = self.isCanceled()
             self.was_cancelled = cancelled
 
@@ -1144,7 +1160,8 @@ class BasemapTileDownloadTask(QgsTask):
             for msg, n in sorted(err_seen.items(), key=lambda kv: -kv[1]):
                 logger.info("Error seen %d×: %s", n, _first_line(msg))
 
-            if n_done < total:                      # not every tile is downloaded
+            incomplete = n_done < total             # not every tile is downloaded
+            if incomplete and not self._partial_ok:
                 if cancelled:
                     logger.warning(
                         "Cancelled at %d/%d tiles %s — queue checkpointed in %s. "
@@ -1164,17 +1181,28 @@ class BasemapTileDownloadTask(QgsTask):
                         "once every tile is downloaded.", n_failed, total)
                 return                              # no partial mosaic
 
-            logger.info("Queue drained: all %d tiles %s.", total, self._t_past)
+            if incomplete:
+                reason = ("cancelled" if cancelled else
+                          "server stopped early" if self.server_gave_up else
+                          f"{n_failed} tile(s) failed" if n_failed else "incomplete")
+                logger.warning(
+                    "Building a PARTIAL mosaic (%s): %d of %d tiles %s, %d missing "
+                    "and left as gaps. Re-run with 'build partial' off to fill them "
+                    "(queue checkpointed in %s).",
+                    reason, n_done, total, self._t_past, total - n_done, db_path)
+            else:
+                logger.info("Queue drained: all %d tiles %s.", total, self._t_past)
+
             tile_paths = queue.done_file_paths()
             if not tile_paths:
-                # Complete, but every tile came back empty (no data in this area) —
+                # Every downloaded tile came back empty (no data in this area) —
                 # nothing to build. Not an error; simply leave no output.
-                logger.warning("All %d tiles are empty; nothing to mosaic.", total)
+                logger.warning("No non-empty tiles to mosaic (of %d).", total)
                 return
 
-            # Every tile is present; build the mosaic. The progress bar is already
-            # pinned at 100%; tell the UI the (progress-less) build is starting so
-            # it can reassure the user it isn't stuck.
+            # Build the mosaic. The progress bar is already pinned at 100%; tell
+            # the UI the (progress-less) build is starting so it can reassure the
+            # user it isn't stuck.
             self.mosaicStarted.emit()
 
             cutline = self._build_cutline(extent_geom, logger) if self._clip else None
@@ -1234,13 +1262,14 @@ class BasemapTileDownloadTask(QgsTask):
             logger.warning("Could not build cutline; skipping clip: %s", e)
             return None
 
-    def _fetch_worker(self, tile, out_path):
+    def _fetch_worker(self, tile, out_path, attempt=0):
         """Runs in a pool thread: one fetch attempt, no DB/throttle access.
-        Returns (outcome, path, retry_after, error) where outcome is one of
+        `attempt` is the number of retries so far (0 on the first try). Returns
+        (outcome, path, retry_after, error) where outcome is one of
         'ok' | 'empty' | 'throttle' | 'timeout' | 'server_error' | 'error'."""
         try:
             path = self._source.fetch_one_tile(
-                self._params, self._opts, tile, out_path, self.logger)
+                self._params, self._opts, tile, out_path, self.logger, attempt=attempt)
             return ("ok" if path else "empty", path, None, None)
         except TileFetchError as e:
             msg = str(e)
@@ -1278,7 +1307,7 @@ def active_task():
 def run(layer=None, extent=None, extent_crs=None, opts=None, out_crs=None,
         output_path=None, temporary=False, resample="bilinear", clip=False,
         concurrency=None, max_attempts=None, min_delay=None,
-        backoff_cap=None, giveup_after=None,
+        backoff_cap=None, giveup_after=None, partial_ok=False,
         on_finished=None, on_mosaic_start=None, on_tile_progress=None):
     """
     Start a download task. The source backend (WMS / XYZ) is auto-detected from
@@ -1296,6 +1325,11 @@ def run(layer=None, extent=None, extent_crs=None, opts=None, out_crs=None,
     `on_tile_progress`, if given, is called on the main thread as tiles resolve
     with (done, total) — throttled to a few times per second, with the final
     tile always delivered. The plugin uses it for the live message-bar counter.
+
+    `partial_ok` (default False): when True, build the mosaic from whatever
+    downloaded even if some tiles are missing (cancelled / failed / server gave
+    up), leaving the gaps unfilled. When False, an incomplete run produces no
+    output; the checkpointed queue lets a re-run finish and build it complete.
 
     Returns the started QgsTask; the already-running task if one is active (no
     new task is started); or None if the job could not be started (unrecognised
@@ -1361,7 +1395,8 @@ def run(layer=None, extent=None, extent_crs=None, opts=None, out_crs=None,
     task = BasemapTileDownloadTask(source, layer, extent_wkt, extent_crs, params, opts,
                                    native, out_crs, output_path, resample, clip,
                                    conc, attempts, mind, cap, giveup,
-                                   cache_key=ckey, on_mosaic_start=on_mosaic_start,
+                                   partial_ok=bool(partial_ok), cache_key=ckey,
+                                   on_mosaic_start=on_mosaic_start,
                                    on_finished=on_finished, on_tile_progress=on_tile_progress)
     # Completion is handled by the task's finished() hook (main thread, prompt for
     # success/failure/cancel) rather than the manager's taskCompleted/

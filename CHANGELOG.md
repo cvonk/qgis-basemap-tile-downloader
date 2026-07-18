@@ -3,7 +3,31 @@
 All notable changes to this project are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
-## [Unreleased]
+## [1.9.0] - 2026-07-17
+### Added
+- **Build mosaic even if some tiles are missing** — a new option under *Output*
+  (off by default). When on, an interrupted or partly-failed run stitches a
+  mosaic from whatever downloaded, leaving the missing tiles as transparent gaps
+  instead of producing no output. The queue is still checkpointed, so a later
+  re-run with the option off fills the gaps and rebuilds the mosaic complete.
+  This restores the pre-1.8.0 partial-mosaic behaviour as an explicit opt-in.
+
+### Fixed
+- **WMS retries could not break through a cached server error.** A WMS
+  `ServiceException` (e.g. MapServer's `msDrawMap(): Image handling error` when
+  the server transiently can't read its own data) comes back as an HTTP 200 with
+  an error body, so a caching layer in front of the WMS (CDN/Varnish) may cache
+  it and serve that same error to every byte-identical retry. Because a resume
+  re-requested the exact same GetMap URL, it could never get past the cached
+  failure — only manually changing a request-shaping setting (tile size,
+  resolution, extent) did, by accident of altering the request key. Retries now
+  append a throwaway, per-attempt cache-buster (`_btd_cb`) to the GetMap URL so
+  each retry has a distinct key and the server actually re-renders. The first
+  attempt stays clean (a genuinely-cached good tile is still reused), unknown
+  params don't affect the pixels, and the buster never enters any cache
+  signature. Other backends (XYZ/WMTS/local raster) accept the retry count but
+  ignore it — their tiles have a stable identity with no server-side error cache
+  to bust.
 
 ## [1.8.1] - 2026-07-15
 ### Fixed

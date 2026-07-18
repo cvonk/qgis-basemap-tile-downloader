@@ -268,7 +268,9 @@ def _tile_url(params, mat, row, col):
     return base + ("&" if "?" in base else "?") + urllib.parse.urlencode(q)
 
 
-def fetch_one_tile(params, opts, tile, out_path, logger):
+def fetch_one_tile(params, opts, tile, out_path, logger, attempt=0):
+    # `attempt` (retry cache-buster) is unused: a WMTS GetTile has a stable
+    # matrix/row/col identity and no server-side error cache to bust.
     mat = params["matrices"][tile["m"]]
     url = _tile_url(params, mat, tile["row"], tile["col"])
     logger.debug("GET tile %d (m%s/%d/%d): %s",

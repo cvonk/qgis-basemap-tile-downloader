@@ -58,7 +58,7 @@ class BasemapTileDownloaderPlugin:
 
         (layer, extent, extent_crs, opts, out_crs, output_path, temporary,
          resample, clip, concurrency, max_attempts, min_delay,
-         backoff_cap, giveup_after) = dlg.values()
+         backoff_cap, giveup_after, partial_mosaic) = dlg.values()
         if layer is None or engine.source_for(layer) is None:
             self.iface.messageBar().pushWarning(
                 MENU_TITLE, "Select a recognised WMS / WMTS / XYZ or local raster (GeoTIFF) layer.")
@@ -86,7 +86,7 @@ class BasemapTileDownloaderPlugin:
                               temporary=temporary, resample=resample, clip=clip,
                               concurrency=concurrency, max_attempts=max_attempts,
                               min_delay=min_delay, backoff_cap=backoff_cap,
-                              giveup_after=giveup_after,
+                              giveup_after=giveup_after, partial_ok=partial_mosaic,
                               on_finished=self._on_run_finished,
                               on_mosaic_start=self._on_mosaic_start,
                               on_tile_progress=self._on_tile_progress)
@@ -175,8 +175,16 @@ class BasemapTileDownloaderPlugin:
         past = "read" if result.get("local") else "downloaded"
 
         if result.get("loaded"):
-            bar.pushMessage(
-                MENU_TITLE, f"Mosaic loaded — {done} tiles.", level=Qgis.Success)
+            if missing > 0:     # "build partial" produced a mosaic with gaps
+                bar.pushMessage(
+                    MENU_TITLE,
+                    f"Partial mosaic loaded — {done} of {total} tiles "
+                    f"({missing} missing, left as gaps). Re-run with "
+                    "“Build mosaic even if some tiles are missing” off to fill them.",
+                    level=Qgis.Warning)
+            else:
+                bar.pushMessage(
+                    MENU_TITLE, f"Mosaic loaded — {done} tiles.", level=Qgis.Success)
         elif result.get("error"):
             bar.pushCritical(MENU_TITLE, result.get("error"))
         elif missing == 0:                  # complete, but every tile was empty

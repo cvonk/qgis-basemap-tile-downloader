@@ -175,6 +175,12 @@ Notes:
   run, the server stops it early, or some tiles fail, no mosaic is produced —
   progress is checkpointed and **re-running continues** where it left off; the
   mosaic is built once the last tile lands.
+- **Build mosaic even if some tiles are missing** (under *Output*, **off by
+  default**) overrides that: it stitches a mosaic from whatever downloaded,
+  leaving the missing tiles as transparent **gaps**. The queue is still
+  checkpointed, so a later re-run **with this off** fills the gaps and rebuilds
+  the mosaic complete. Handy for a quick look, or when a provider simply has no
+  data for part of your extent and the run would otherwise never complete.
 
 Click **OK** to start. A live per-tile counter appears in the message bar (e.g.
 *Downloading tiles… 1,234 / 2,025 (61%) · ~7.0s/tile*), overall progress shows in
@@ -215,8 +221,11 @@ error (the completion message and `download.log` report how many). The mosaic is
 built **only when every tile is present**, so a run with failures produces no
 output. **Just run the export again with the same settings** — it keeps the tiles
 already downloaded and retries the failed ones; once they all succeed the mosaic
-is built. If a specific server keeps failing many parallel requests, lower
-**Parallel downloads** (to 1–2). For XYZ, `404`/`204` tiles are *not* failures —
+is built. (If you'd rather have a mosaic *now*, gaps and all, tick **Build mosaic
+even if some tiles are missing** under *Output* — the missing tiles are left
+transparent, and a later re-run with it off still fills them.) If a specific
+server keeps failing many parallel requests, lower **Parallel downloads** (to
+1–2). For XYZ, `404`/`204` tiles are *not* failures —
 they're legitimate empty tiles (no data there), counted as done and left as
 transparent areas in the finished mosaic; a resume won't re-request them, so it
 doesn't waste a quota tile re-confirming known gaps.
@@ -236,10 +245,24 @@ service may simply not have data for that area. A WMS
 `ServiceException` such as *"Unable to access file … tile_33_12.shp"*, or errors
 confined to one part of the extent, usually mean the provider can't serve that
 region — not a transient glitch, so retrying won't help. Often it is one
-sublayer that doesn't cover your whole extent (e.g. an adjacent UTM-zone layer):
-recreate the WMS layer requesting only the sublayer that covers your area, or
-shrink the extent to the covered region. Note the log is rewritten on each run,
-so copy it before re-running if you want to keep the evidence.
+sublayer that either doesn't cover your whole extent or is **broken on the
+server** for that area (e.g. an adjacent UTM-zone orthophoto whose backing file
+the provider can't read). Note that a combined `LAYERS=a,b` request fails the
+**whole** tile if *either* sublayer errors, so a single broken sublayer can
+block tiles that another sublayer would happily cover. Two ways to finish:
+- **Get a mosaic now, with holes:** tick **Build mosaic even if some tiles are
+  missing** under *Output* and re-run — the stuck tiles are left as transparent
+  gaps. Good when they fall off the useful area, or you just want a quick look.
+- **Actually fill them:** recreate the WMS layer requesting only the **working**
+  sublayer (drop the broken one), or shrink the extent to the covered region.
+  Because the layer list is part of the job fingerprint, this starts a **fresh**
+  download rather than resuming the existing one.
+
+Either way, *re-running* means re-opening the dialog and clicking **OK** with the
+same settings — you do **not** reload the plugin (that only matters when the
+plugin's own code changes). Once the queue is complete, a re-run skips straight
+to building the mosaic with no further downloads. Note the log is rewritten on
+each run, so copy it before re-running if you want to keep the evidence.
 
 **A server rate-limits me, or blocks me after a while.**
 The adaptive throttle already backs off and retries, but for a strict server you
@@ -275,9 +298,18 @@ extent's corner, so overlapping WMS exports share a pixel grid; the exact-extent
 crop still trims the final mosaic, so the output isn't enlarged.
 
 **A run failed with a WMS `ServiceException` about a file it can't open.**
-That's the *provider's* server failing to read its own data (often intermittent)
-— not a plugin or network problem on your side. Wait and re-run; the failed
-tiles will be retried.
+That's the *provider's* server failing to read its own data (often intermittent
+— e.g. it briefly can't reach the storage behind a sublayer) — not a plugin or
+network problem on your side. There's a catch that used to make this look
+permanent: the server returns that error as a normal `200 OK` response, so a
+caching layer in front of it (CDN/proxy) can cache the *error* and replay it for
+every byte-identical request — a plain retry to the exact same tile would then
+keep getting the stale failure, and only changing a request-shaping setting
+(tile size, resolution, extent) broke through, by accident of altering the
+request. The plugin now defeats that automatically: each retry adds a throwaway
+cache-buster to the GetMap request so the server actually re-renders instead of
+replaying the cached error. Usually the run recovers on its own once the file is
+readable again; if a whole batch is affected, wait a bit and re-run.
 
 **Can I export a local GeoTIFF instead of downloading?**
 Yes. Load any GDAL-readable raster in QGIS and pick it as the source layer. There

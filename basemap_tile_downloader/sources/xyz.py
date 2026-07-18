@@ -116,7 +116,9 @@ def build_tile_grid(extent_geom, extent_crs, params, opts, logger):
 # ─────────────────────────────────────────────
 # FETCH
 # ─────────────────────────────────────────────
-def fetch_one_tile(params, opts, tile, out_path, logger):
+def fetch_one_tile(params, opts, tile, out_path, logger, attempt=0):
+    # `attempt` (retry cache-buster) is unused: an XYZ tile has a stable
+    # {z}/{x}/{y} URL and no server-side error cache to bust.
     url = xyz_url(params["template"], tile["x"], tile["y"], tile["z"])
     logger.debug("GET tile %d (z%d/%d/%d): %s",
                  tile["id"], tile["z"], tile["x"], tile["y"], url)
