@@ -171,6 +171,13 @@ Notes:
     this many requests in a row fail with no success (a server refusing a block
     of tiles), keep what downloaded in the queue, and leave the rest for a re-run.
     Set it to 0 (“Never”) to keep only the per-tile limit.
+  - **Bypass cached server errors on retry** (off by default) — for a WMS behind
+    a cache/CDN. A WMS `ServiceException` is returned as a normal `200 OK`, so a
+    cache can store that error and replay it for every identical retry, and the
+    request never recovers. Tick this to make each retry add a throwaway
+    parameter so the request differs and the server actually re-renders. Leave it
+    off for normal use — it forgoes the cache on retries (more load), and only
+    WMS is affected (XYZ/WMTS/local rasters ignore it).
 - The mosaic is built **only when every tile is downloaded**. If you **cancel** a
   run, the server stops it early, or some tiles fail, no mosaic is produced —
   progress is checkpointed and **re-running continues** where it left off; the
@@ -306,10 +313,12 @@ caching layer in front of it (CDN/proxy) can cache the *error* and replay it for
 every byte-identical request — a plain retry to the exact same tile would then
 keep getting the stale failure, and only changing a request-shaping setting
 (tile size, resolution, extent) broke through, by accident of altering the
-request. The plugin now defeats that automatically: each retry adds a throwaway
+request. If you hit this, tick **Bypass cached server errors on retry** in the
+*Advanced* section (off by default) and re-run: each retry then adds a throwaway
 cache-buster to the GetMap request so the server actually re-renders instead of
-replaying the cached error. Usually the run recovers on its own once the file is
-readable again; if a whole batch is affected, wait a bit and re-run.
+replaying the cached error. Leave it off for normal use — it forgoes the cache on
+retries (more load) and only affects WMS. Either way, once the file is readable
+again the run recovers; if a whole batch is affected, wait a bit and re-run.
 
 **Can I export a local GeoTIFF instead of downloading?**
 Yes. Load any GDAL-readable raster in QGIS and pick it as the source layer. There

@@ -16,9 +16,11 @@ A "source" module exposes (required):
     default_out_crs(params) -> str
     build_tile_grid(extent_geom, extent_crs, params, opts, logger) -> list[dict]  # each has "id"
     fetch_one_tile(params, opts, tile, out_path, logger, attempt=0) -> path|None
-                                             # None = empty tile (gap). attempt is
-                                             # the retry count (0 on the first try);
-                                             # a source may use it as a cache-buster.
+                                             # None = empty tile (gap). attempt is a
+                                             # cache-buster hint a source may add to
+                                             # a retried request: the retry count, or
+                                             # 0 on the first try AND whenever the
+                                             # run's cache-busting option is off.
     fingerprint_parts(params, opts) -> list
 
 and may also define (optional):
@@ -744,8 +746,8 @@ class BasemapTileDownloadTask(QgsTask):
                  clip=False, concurrency=CONCURRENCY,
                  max_attempts=MAX_ATTEMPTS_PER_TILE, min_delay=0.0,
                  backoff_cap=MAX_DELAY_SEC, giveup_after=MAX_CONSECUTIVE_BACKPRESSURE,
-                 partial_ok=False, cache_key=None, on_mosaic_start=None,
-                 on_finished=None, on_tile_progress=None):
+                 partial_ok=False, cache_bust=False, cache_key=None,
+                 on_mosaic_start=None, on_finished=None, on_tile_progress=None):
         # Silent: suppress QGIS's own task-finished/terminated notifications — the
         # plugin posts its own completion (and error) messages, so QGIS's generic
         # one is just noise, especially after a failure. (Silent needs QGIS 3.26+;
@@ -787,6 +789,10 @@ class BasemapTileDownloadTask(QgsTask):
         # The queue is still checkpointed either way, so a later re-run can fill
         # the gaps and rebuild complete.
         self._partial_ok   = bool(partial_ok)
+        # Add a per-attempt cache-buster to retried requests so a server-side
+        # cache (CDN/proxy) can't replay a cached error for a byte-identical
+        # retry. Off by default; only WMS acts on it. See _fetch_worker.
+        self._cache_bust   = bool(cache_bust)
 
         # Each job gets its own cache subdir (keyed by the output name, or the
         # job fingerprint for a temporary output), so downloading a different
@@ -1009,9 +1015,11 @@ class BasemapTileDownloadTask(QgsTask):
                         out_path = os.path.join(tiles_dir, f"tile_{tid:06d}.tif")
                         # attempts + backpressure = retries so far (0 on the first
                         # try, then strictly increasing per retry): a per-attempt
-                        # cache-buster for sources that support one (see WMS).
-                        fut = pool.submit(self._fetch_worker, tile, out_path,
-                                          attempts + backpressure)
+                        # cache-buster for sources that support one (see WMS). Pass
+                        # 0 unless the user enabled cache-busting, so a source's
+                        # request is unchanged when the option is off.
+                        attempt = (attempts + backpressure) if self._cache_bust else 0
+                        fut = pool.submit(self._fetch_worker, tile, out_path, attempt)
                         in_flight[fut] = [tid, tile, attempts, backpressure]
 
                     if not in_flight:
@@ -1264,7 +1272,8 @@ class BasemapTileDownloadTask(QgsTask):
 
     def _fetch_worker(self, tile, out_path, attempt=0):
         """Runs in a pool thread: one fetch attempt, no DB/throttle access.
-        `attempt` is the number of retries so far (0 on the first try). Returns
+        `attempt` is the cache-buster hint (retries so far, or 0 when the run's
+        cache-busting option is off — see the submit call). Returns
         (outcome, path, retry_after, error) where outcome is one of
         'ok' | 'empty' | 'throttle' | 'timeout' | 'server_error' | 'error'."""
         try:
@@ -1307,7 +1316,7 @@ def active_task():
 def run(layer=None, extent=None, extent_crs=None, opts=None, out_crs=None,
         output_path=None, temporary=False, resample="bilinear", clip=False,
         concurrency=None, max_attempts=None, min_delay=None,
-        backoff_cap=None, giveup_after=None, partial_ok=False,
+        backoff_cap=None, giveup_after=None, partial_ok=False, cache_bust=False,
         on_finished=None, on_mosaic_start=None, on_tile_progress=None):
     """
     Start a download task. The source backend (WMS / XYZ) is auto-detected from
@@ -1395,7 +1404,8 @@ def run(layer=None, extent=None, extent_crs=None, opts=None, out_crs=None,
     task = BasemapTileDownloadTask(source, layer, extent_wkt, extent_crs, params, opts,
                                    native, out_crs, output_path, resample, clip,
                                    conc, attempts, mind, cap, giveup,
-                                   partial_ok=bool(partial_ok), cache_key=ckey,
+                                   partial_ok=bool(partial_ok),
+                                   cache_bust=bool(cache_bust), cache_key=ckey,
                                    on_mosaic_start=on_mosaic_start,
                                    on_finished=on_finished, on_tile_progress=on_tile_progress)
     # Completion is handled by the task's finished() hook (main thread, prompt for

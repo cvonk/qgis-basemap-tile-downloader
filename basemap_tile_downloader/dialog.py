@@ -37,6 +37,7 @@ DEFAULT_ZOOM         = 18
 DEFAULT_CONCURRENCY  = 4
 DEFAULT_MAX_ATTEMPTS = 6
 DEFAULT_MIN_DELAY    = 0.0
+DEFAULT_CACHE_BUST   = False   # off: don't add the per-retry WMS cache-buster
 # Sourced from the engine so the dialog's defaults can't drift from the real ones.
 DEFAULT_BACKOFF_CAP  = engine.MAX_DELAY_SEC                # s; adaptive back-off ceiling
 DEFAULT_GIVEUP_AFTER = engine.MAX_CONSECUTIVE_BACKPRESSURE  # consecutive fails → give up
@@ -278,6 +279,18 @@ class BasemapTileDialog(QDialog):
             "(a server refusing a block of tiles), then build a partial mosaic "
             "from what downloaded and leave the rest for a re-run. 0 = never give "
             "up (only the per-tile limit applies). Default 30.")
+        # Off by default: only WMS uses it, and it forgoes any server-side cache
+        # on retries (more load), so it's opt-in for the case it fixes.
+        self.cache_bust_check = QCheckBox("Bypass cached server errors on retry")
+        self.cache_bust_check.setToolTip(
+            "For WMS servers behind a cache/CDN. A WMS ServiceException (e.g. the "
+            "server briefly can't read its own data) comes back as a normal "
+            "'200 OK', so a cache may store that error and replay it for every "
+            "identical retry — the request never recovers.\n"
+            "On: each retry adds a throwaway parameter so the request differs and "
+            "the server actually re-renders instead of replaying the cached "
+            "failure. The first attempt is unchanged (a good cached tile is still "
+            "reused). No effect on XYZ/WMTS/local rasters.")
 
         self.advanced_group = advanced = QgsCollapsibleGroupBox("Advanced")
         advanced.setCollapsed(True)
@@ -287,6 +300,7 @@ class BasemapTileDialog(QDialog):
         aform.addRow("Minimum delay between requests:", self.min_delay_spin)
         aform.addRow("Back-off cap:", self.backoff_cap_spin)
         aform.addRow("Give up after (server errors in a row):", self.giveup_spin)
+        aform.addRow("", self.cache_bust_check)
 
         # Reset just the Advanced options above to their defaults, right-aligned
         # on its own row inside the group.
@@ -499,6 +513,7 @@ class BasemapTileDialog(QDialog):
         self.min_delay_spin.setValue(DEFAULT_MIN_DELAY)
         self.backoff_cap_spin.setValue(DEFAULT_BACKOFF_CAP)
         self.giveup_spin.setValue(DEFAULT_GIVEUP_AFTER)
+        self.cache_bust_check.setChecked(DEFAULT_CACHE_BUST)
 
     # ── settings persistence ──────────────────────────────────────────────────
     def _restore_state(self):
@@ -536,6 +551,8 @@ class BasemapTileDialog(QDialog):
         self.min_delay_spin.setValue(float(s.value(f"{g}/min_delay", DEFAULT_MIN_DELAY)))
         self.backoff_cap_spin.setValue(float(s.value(f"{g}/backoff_cap", DEFAULT_BACKOFF_CAP)))
         self.giveup_spin.setValue(int(s.value(f"{g}/giveup_after", DEFAULT_GIVEUP_AFTER)))
+        self.cache_bust_check.setChecked(
+            s.value(f"{g}/cache_bust", DEFAULT_CACHE_BUST, type=bool))
 
         # Restore the last-used extent (overriding the default canvas extent that
         # setMapCanvas seeded). setOutputExtentFromUser fills the N/S/E/W fields.
@@ -570,6 +587,7 @@ class BasemapTileDialog(QDialog):
         s.setValue(f"{g}/min_delay", self.min_delay_spin.value())
         s.setValue(f"{g}/backoff_cap", self.backoff_cap_spin.value())
         s.setValue(f"{g}/giveup_after", self.giveup_spin.value())
+        s.setValue(f"{g}/cache_bust", self.cache_bust_check.isChecked())
         ly = self.layer_combo.currentLayer()
         s.setValue(f"{g}/layer_id", ly.id() if ly else "")
 
@@ -689,9 +707,10 @@ class BasemapTileDialog(QDialog):
         backoff_cap = self.backoff_cap_spin.value()
         giveup_after = self.giveup_spin.value()
         partial_mosaic = self.partial_check.isChecked()
+        cache_bust = self.cache_bust_check.isChecked()
         valid = self.extent_widget.isValid()
         extent = self.extent_widget.outputExtent() if valid else None
         extent_crs = self.extent_widget.outputCrs().authid() if valid else None
         return (layer, extent, extent_crs, opts, out_crs, out_path, temporary,
                 resample, clip, concurrency, max_attempts, min_delay,
-                backoff_cap, giveup_after, partial_mosaic)
+                backoff_cap, giveup_after, partial_mosaic, cache_bust)

@@ -4,7 +4,7 @@ qgisMinimumVersion=3.40.8
 qgisMaximumVersion=4.99
 description=Download a WMS, WMTS, or XYZ basemap over an extent and mosaic it into a GeoTIFF.
 about=Auto-detects whether the chosen layer is a WMS, WMTS, or XYZ tile source. Tiles the request over a chosen extent (WMS GetMap at a chosen resolution/CRS, or WMTS / Web-Mercator {z}/{x}/{y} at a chosen zoom), downloads with adaptive throttling and a resumable SQLite work queue, georeferences each tile, and builds a compressed, tiled GeoTIFF mosaic (with overviews) using GDAL. Optionally reprojects to a chosen output CRS and crops to the exact extent. Requires the GDAL Python bindings. For personal and educational use only — respect each provider's Terms of Service and usage limits.
-version=1.9.0
+version=1.9.1
 author=Coert Vonk
 email=ing.c.j.s.vonk@gmail.com
 license=GPL-3.0-or-later
@@ -16,7 +16,13 @@ experimental=False
 deprecated=False
 category=Raster
 tags=wms,wmts,xyz,tiles,download,raster,mosaic,gdal,basemap,orthophoto,aoi,web mercator
-changelog=1.9.0 - New option "Build mosaic even if some tiles are missing" (off
+changelog=1.9.1 - The WMS retry cache-buster added in 1.9.0 is now an opt-in
+    Advanced option, "Bypass cached server errors on retry" (off by default). It
+    forgoes any server-side cache on retries and only helps when a WMS behind a
+    cache/CDN keeps replaying a cached ServiceException for byte-identical
+    retries, so it is now a deliberate toggle rather than always-on. Only WMS is
+    affected; XYZ/WMTS and local rasters ignore it.
+    1.9.0 - New option "Build mosaic even if some tiles are missing" (off
     by default): an interrupted or partly-failed run can stitch a mosaic from
     whatever downloaded, leaving the missing tiles as transparent gaps, and a
     later re-run with the option off still fills them and rebuilds it complete.

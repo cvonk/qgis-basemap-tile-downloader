@@ -3,6 +3,17 @@
 All notable changes to this project are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
+## [1.9.1] - 2026-07-17
+### Changed
+- **The WMS retry cache-buster is now an opt-in Advanced option** — *Bypass
+  cached server errors on retry*, off by default. 1.9.0 added the buster to
+  every WMS retry automatically; because it forgoes any server-side cache on
+  retries (more load) and only helps the specific case of a CDN/proxy replaying
+  a cached `ServiceException`, it is now a deliberate toggle at the bottom of the
+  *Advanced* section rather than always-on. Tick it when a WMS behind a cache
+  keeps serving the same cached error to identical retries; leave it off
+  otherwise. Only WMS is affected (XYZ/WMTS/local rasters ignore it).
+
 ## [1.9.0] - 2026-07-17
 ### Added
 - **Build mosaic even if some tiles are missing** — a new option under *Output*

@@ -58,7 +58,7 @@ class BasemapTileDownloaderPlugin:
 
         (layer, extent, extent_crs, opts, out_crs, output_path, temporary,
          resample, clip, concurrency, max_attempts, min_delay,
-         backoff_cap, giveup_after, partial_mosaic) = dlg.values()
+         backoff_cap, giveup_after, partial_mosaic, cache_bust) = dlg.values()
         if layer is None or engine.source_for(layer) is None:
             self.iface.messageBar().pushWarning(
                 MENU_TITLE, "Select a recognised WMS / WMTS / XYZ or local raster (GeoTIFF) layer.")
@@ -87,6 +87,7 @@ class BasemapTileDownloaderPlugin:
                               concurrency=concurrency, max_attempts=max_attempts,
                               min_delay=min_delay, backoff_cap=backoff_cap,
                               giveup_after=giveup_after, partial_ok=partial_mosaic,
+                              cache_bust=cache_bust,
                               on_finished=self._on_run_finished,
                               on_mosaic_start=self._on_mosaic_start,
                               on_tile_progress=self._on_tile_progress)
