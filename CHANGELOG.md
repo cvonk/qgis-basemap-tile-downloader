@@ -3,6 +3,15 @@
 All notable changes to this project are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
+## [1.9.2] - 2026-07-18
+### Fixed
+- **The live “s/tile” counter read too low.** It divided the elapsed time by the
+  *total* resolved-tile count, which includes tiles restored from a resumed queue
+  or the shared cache (they cost no time this run) plus the parallel head start.
+  On a resume it collapsed toward zero; on a fresh run it sat near half the real
+  pace (e.g. ~3 s/tile with a 6 s minimum delay). It now measures only the tiles
+  fetched after the counter appears, so it reflects the actual download rate.
+
 ## [1.9.1] - 2026-07-17
 ### Changed
 - **The WMS retry cache-buster is now an opt-in Advanced option** — *Bypass

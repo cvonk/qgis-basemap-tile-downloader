@@ -29,6 +29,7 @@ class BasemapTileDownloaderPlugin:
         self._progress_label = None
         self._progress_verb = "Downloading"
         self._progress_start = 0.0
+        self._progress_done0 = 0
 
     def initGui(self):
         self.action = QAction(
@@ -132,11 +133,19 @@ class BasemapTileDownloaderPlugin:
                 self._progress_item = self.iface.messageBar().pushWidget(
                     self._progress_label, Qgis.Info)
                 self._progress_start = time.monotonic()
+                # Baseline: tiles already resolved when this run's counter first
+                # appeared (resumed and shared-cache tiles cost ~no time now). The
+                # s/tile pace is measured only over tiles fetched *after* this
+                # point, so it reflects the real download rate — dividing the whole
+                # count by the elapsed time would dilute it toward zero and read
+                # well below the configured minimum delay.
+                self._progress_done0 = done
             pct = int(100 * done / total) if total else 100
             txt = f"{self._progress_verb} tiles… {done:,} / {total:,} ({pct}%)"
             elapsed = time.monotonic() - self._progress_start
-            if done:
-                txt += f" · ~{elapsed / done:.1f}s/tile"
+            fetched = done - self._progress_done0
+            if fetched > 0:
+                txt += f" · ~{elapsed / fetched:.1f}s/tile"
             self._progress_label.setText(txt)
         except Exception:  # nosec B110
             pass
