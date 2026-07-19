@@ -124,7 +124,7 @@ def build_tile_grid(extent_geom, extent_crs, params, opts, logger):
         raise DownloaderError("Tile size in map units is ≤ 0 – check resolution.")
 
     n_cols, n_rows = wms_grid_dims(bb.width(), bb.height(), step)
-    logger.info("Extent bbox (raster CRS): %s", bb.toString())
+    logger.debug("Extent bbox (raster CRS): %s", bb.toString())
     logger.info("Grid: %d×%d tiles, %.4f units/tile", n_cols, n_rows, step)
 
     sxmin, symin, sxmax, symax = params["src_bounds"]

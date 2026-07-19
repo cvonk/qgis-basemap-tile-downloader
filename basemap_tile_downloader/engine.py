@@ -1001,10 +1001,10 @@ class BasemapTileDownloadTask(QgsTask):
             consecutive_bp = 0
             # Throttle for the live per-tile counter emitted to the UI.
             last_prog_emit = 0.0
-            logger.info("%s with concurrency=%d (back-off cap %.0fs, give up "
-                        "after %s consecutive failures)", self._t_ing, self._concurrency,
-                        self._backoff_cap,
-                        self._giveup_after if self._giveup_after else "never")
+            logger.debug("%s with concurrency=%d (back-off cap %.0fs, give up "
+                         "after %s consecutive failures)", self._t_ing, self._concurrency,
+                         self._backoff_cap,
+                         self._giveup_after if self._giveup_after else "never")
 
             with ThreadPoolExecutor(max_workers=self._concurrency) as pool:
                 while pending or in_flight:

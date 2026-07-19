@@ -3,6 +3,17 @@
 All notable changes to this project are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
+## [1.9.4] - 2026-07-18
+### Changed
+- **Quieter Message Log.** The per-run diagnostics that dumped extent coordinates
+  (`Extent bbox …`) and the fetch-settings line (`… with concurrency=N (back-off
+  cap …, give up after …)`) are now DEBUG — still written to `download.log`, but
+  no longer shown in the QGIS Message Log panel.
+- **The “building the GeoTIFF mosaic…” notice now stays for the whole build.** It
+  is shown as a persistent widget in the canvas message bar (rather than a
+  self-dismissing message) and cleared when the run finishes, so it no longer
+  vanishes part-way through a long mosaic build.
+
 ## [1.9.3] - 2026-07-18
 ### Added
 - **The shared-cache signature is logged to the Message Log** at the start of the

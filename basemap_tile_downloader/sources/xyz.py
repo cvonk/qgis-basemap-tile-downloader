@@ -95,7 +95,7 @@ def build_tile_grid(extent_geom, extent_crs, params, opts, logger):
     xmin, xmax, ymin, ymax = tile_range(
         bb.xMinimum(), bb.yMinimum(), bb.xMaximum(), bb.yMaximum(), zoom)
 
-    logger.info("Extent bbox (EPSG:3857): %s", bb.toString())
+    logger.debug("Extent bbox (EPSG:3857): %s", bb.toString())
     logger.info("Zoom %d → %.3f m/px; tiles x[%d..%d] y[%d..%d]",
                 zoom, tile_resolution_m(zoom), xmin, xmax, ymin, ymax)
 

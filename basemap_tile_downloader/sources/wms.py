@@ -212,7 +212,7 @@ def build_tile_grid(extent_geom, extent_crs, params, opts, logger):
     c0 = math.floor(bb.xMinimum() / step); c1 = math.floor(bb.xMaximum() / step)
     r0 = math.floor(bb.yMinimum() / step); r1 = math.floor(bb.yMaximum() / step)
     n_grid = (c1 - c0 + 1) * (r1 - r0 + 1)
-    logger.info("Extent bbox (req CRS): %s", bb.toString())
+    logger.debug("Extent bbox (req CRS): %s", bb.toString())
     logger.info("Grid: %d×%d tiles, %.2f map-units/tile (origin-anchored)",
                 c1 - c0 + 1, r1 - r0 + 1, step)
 

@@ -42,6 +42,9 @@ class BasemapTileDownloaderPlugin:
         self._progress_verb = "Downloading"
         self._progress_start = 0.0
         self._progress_done0 = 0
+        # Persistent "building mosaic…" widget shown in the canvas message bar
+        # while the (progress-less) mosaic build runs.
+        self._mosaic_item = None
 
     def initGui(self):
         self.action = QAction(
@@ -164,24 +167,30 @@ class BasemapTileDownloaderPlugin:
             pass
 
     def _clear_progress(self):
-        """Remove the live per-tile counter widget, if present."""
-        if self._progress_item is not None:
-            try:
-                self.iface.messageBar().popWidget(self._progress_item)
-            except Exception:  # nosec B110
-                pass
+        """Remove the live per-tile counter and the mosaic-building notice, if
+        present."""
+        bar = self.iface.messageBar()
+        for item in (self._progress_item, self._mosaic_item):
+            if item is not None:
+                try:
+                    bar.popWidget(item)
+                except Exception:  # nosec B110
+                    pass
         self._progress_item = None
         self._progress_label = None
+        self._mosaic_item = None
 
     def _on_mosaic_start(self):
-        """Flash a note when the fetch phase ends and the mosaic build begins
-        (runs on the main thread). The progress bar is already at 100% here, but
-        the mosaic step reports no progress and can take a while — this reassures
-        the user it isn't stuck."""
+        """Show a canvas message-bar notice when the fetch phase ends and the
+        mosaic build begins (runs on the main thread). The progress bar is already
+        at 100% here, but the mosaic step reports no progress and can take a while
+        — this reassures the user it isn't stuck. Pushed as a persistent widget
+        (not a self-dismissing message) so it stays for the whole build, and is
+        cleared in _on_run_finished."""
         self._clear_progress()          # fetch done — retire the per-tile counter
-        self.iface.messageBar().pushInfo(
-            MENU_TITLE, "All tiles ready — building the GeoTIFF mosaic "
-                        "(this can take a moment)…")
+        label = QLabel("All tiles ready — building the GeoTIFF mosaic "
+                       "(this can take a moment)…")
+        self._mosaic_item = self.iface.messageBar().pushWidget(label, Qgis.Info)
 
     def _on_run_finished(self, result):
         """Post a completion summary to the message bar (runs on the main thread).
