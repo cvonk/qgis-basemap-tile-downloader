@@ -12,8 +12,9 @@ clip a national 10 m DTM to your study area — you get just the pixels you want
 the resolution you choose.
 
 ### What it does
-- **Auto-detects the source** — WMS, WMTS, XYZ, or a local GDAL raster; no need to tell it which.
-- **Tiles your extent** — WMS `GetMap` at a chosen resolution, or XYZ/WMTS at a chosen zoom.
+- **Auto-detects the source** — WMS, WMTS, XYZ, ArcGIS REST MapServer, or a local GDAL raster; no need to tell it which.
+- **Tiles your extent** — WMS `GetMap` / ArcGIS `export` at a chosen resolution, or XYZ/WMTS at a chosen zoom.
+- **Harmonises flight years (ArcGIS)** — for orthophoto services that mosaic several survey years, it can download each year and colour-match them along the seam, so the result has no year-boundary banding. Optional, off by default.
 - **Plays nice with servers** — adaptive, per-source throttling and parallel fetches: fast when it can be, gentle when it must be.
 - **Never loses work** — a resumable SQLite queue picks an interrupted run back up exactly where it left off, and the cache can be moved or backed up.
 - **Skips redundant downloads** — overlapping jobs (XYZ/WMTS/WMS) reuse tiles from a shared cache, sparing both time and your provider's quota.
@@ -178,6 +179,14 @@ Notes:
     parameter so the request differs and the server actually re-renders. Leave it
     off for normal use — it forgoes the cache on retries (more load), and only
     WMS is affected (XYZ/WMTS/local rasters ignore it).
+- The collapsible **Processing** section (ArcGIS sources only, **closed by
+  default**) holds **Harmonise flight years**. An ArcGIS orthophoto service often
+  serves a mosaic of several survey years, with a visible colour seam where two
+  years meet. When on, the plugin downloads each year separately and
+  colour-matches the older years to the newest **along their shared boundary**,
+  then composites — removing the seam while keeping each year's own colours (a
+  global balance would mute them). Services with a deep dated archive (some go
+  back decades) use only the newest few years.
 - The mosaic is built **only when every tile is downloaded**. If you **cancel** a
   run, the server stops it early, or some tiles fail, no mosaic is produced —
   progress is checkpointed and **re-running continues** where it left off; the
@@ -190,7 +199,7 @@ Notes:
   data for part of your extent and the run would otherwise never complete.
 
 Click **OK** to start. A live per-tile counter appears in the message bar (e.g.
-*Downloading tiles… 1,234 / 2,025 (61%) · ~7.0s/tile*), overall progress shows in
+*Downloading tiles… 1,234 / 2,025 (61%) · ~3m 20s left*), overall progress shows in
 the Task Manager, and the live run log opens in the **Log Messages** panel (the
 *Basemap Tile Downloader* tab). The finished mosaic is added to the project
 automatically.

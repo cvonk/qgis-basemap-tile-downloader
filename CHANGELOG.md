@@ -3,6 +3,16 @@
 All notable changes to this project are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
+## [1.10.1] - 2026-07-18
+### Fixed
+- **Flight-year harmonise recognises more ArcGIS layer namings.** It previously
+  matched only a raster sublayer named exactly `Image` and a year via a
+  word-boundary regex, missing services like Land Tirol whose layers are
+  `Image_2022` / `Image_2019_2021` (the `_` defeats `\b`). It now matches
+  `Image*` children and years adjacent to underscores. Services with a deep
+  dated archive (Tirol reaches back to 1940) harmonise only the **newest few**
+  (default 4), so a current basemap isn't composited with 1940s imagery.
+
 ## [1.10.0] - 2026-07-18
 ### Added
 - **ArcGIS REST MapServer source type.** Point the plugin at an ArcGIS Map Server

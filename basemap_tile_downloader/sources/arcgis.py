@@ -34,10 +34,16 @@ except Exception:  # pragma: no cover - GDAL/numpy always present under QGIS
 SOURCE_NAME = "ArcGIS"
 INITIAL_DELAY_SEC = 0.5
 CONCURRENCY = 3
+# Some services publish a deep archive of dated layers (Tirol goes back to 1940).
+# Harmonise only the newest few — a current basemap wants recent imagery, and
+# the older layers only fill gaps the newest ones leave (and are fetched too).
+_MAX_HARMONISE_YEARS = 4
 
 # ArcGIS returns a ServiceException-style error as JSON even for f=image, so a
 # failed tile has a small JSON body rather than image bytes.
-_YEAR_RE = re.compile(r"\b(19|20)\d\d\b")
+# A 4-digit 19xx/20xx year not glued to other digits — matches "2022" and the
+# first year of a range like "2019_2021" (\b won't do: '_' is a word char).
+_YEAR_RE = re.compile(r"(?<!\d)(?:19|20)\d\d(?!\d)")
 
 
 # ─────────────────────────────────────────────
@@ -126,18 +132,22 @@ def prepare(params, opts, logger):
         if not m or not l.get("subLayerIds"):
             continue
         img = next((cid for cid in l["subLayerIds"]
-                    if by_id.get(cid, {}).get("name", "").lower() == "image"), None)
+                    if by_id.get(cid, {}).get("name", "").lower().startswith("image")), None)
         if img is not None:
             years.append((int(m.group(0)), img))
     years.sort(reverse=True)                      # newest first
     params["years"] = years
     if opts.get("harmonize"):
-        if len(years) < 2:
+        active = _years_active(params, opts)
+        if not active:
             logger.warning("Harmonise requested but the service has <2 dated layers "
-                           "(%s) — downloading the composite instead.", years)
+                           "(%s) — downloading the composite instead.",
+                           [y for y, _ in years])
         else:
-            logger.info("Harmonising flight years: %s (reference = %d).",
-                        [y for y, _ in years], years[0][0])
+            extra = (f" (of {len(years)} dated layers, using the newest {len(active)})"
+                     if len(years) > len(active) else "")
+            logger.info("Harmonising flight years: %s (reference = %d)%s.",
+                        [y for y, _ in active], active[0][0], extra)
 
 
 def native_crs(params, opts):
@@ -149,8 +159,12 @@ def default_out_crs(params):
 
 
 def _years_active(params, opts):
-    """The (year, layer_id) list to fetch separately, or [] for a single pass."""
-    return params.get("years", []) if (opts.get("harmonize") and len(params.get("years", [])) >= 2) else []
+    """The (year, layer_id) list to fetch separately (newest first, capped), or
+    [] for a single pass."""
+    ys = params.get("years", [])                 # sorted newest-first in prepare()
+    if opts.get("harmonize") and len(ys) >= 2:
+        return ys[:_MAX_HARMONISE_YEARS]
+    return []
 
 
 # ─────────────────────────────────────────────
