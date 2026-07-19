@@ -120,7 +120,7 @@ class BasemapTileDownloaderPlugin:
                 f"{started} started — progress in the Task Manager; live log in the "
                 "Log Messages panel (Basemap Tile Downloader tab).")
         except Exception as e:
-            QgsMessageLog.logMessage(str(e), "Basemap Tile Downloader", Qgis.Critical)
+            QgsMessageLog.logMessage(str(e), "Basemap Tile Downloader", Qgis.MessageLevel.Critical)
             self.iface.messageBar().pushCritical(MENU_TITLE, str(e))
 
     def _raise_log_panel(self):
@@ -146,7 +146,7 @@ class BasemapTileDownloaderPlugin:
             if self._progress_label is None:
                 self._progress_label = QLabel()
                 self._progress_item = self.iface.messageBar().pushWidget(
-                    self._progress_label, Qgis.Info)
+                    self._progress_label, Qgis.MessageLevel.Info)
                 self._progress_start = time.monotonic()
                 # Baseline: tiles already resolved when this run's counter first
                 # appeared (resumed and shared-cache tiles cost ~no time now). The
@@ -190,7 +190,7 @@ class BasemapTileDownloaderPlugin:
         self._clear_progress()          # fetch done — retire the per-tile counter
         label = QLabel("All tiles ready — building the GeoTIFF mosaic "
                        "(this can take a moment)…")
-        self._mosaic_item = self.iface.messageBar().pushWidget(label, Qgis.Info)
+        self._mosaic_item = self.iface.messageBar().pushWidget(label, Qgis.MessageLevel.Info)
 
     def _on_run_finished(self, result):
         """Post a completion summary to the message bar (runs on the main thread).
@@ -213,10 +213,10 @@ class BasemapTileDownloaderPlugin:
                     f"Partial mosaic loaded — {done} of {total} tiles "
                     f"({missing} missing, left as gaps). Re-run with "
                     "“Build mosaic even if some tiles are missing” off to fill them.",
-                    level=Qgis.Warning)
+                    level=Qgis.MessageLevel.Warning)
             else:
                 bar.pushMessage(
-                    MENU_TITLE, f"Mosaic loaded — {done} tiles.", level=Qgis.Success)
+                    MENU_TITLE, f"Mosaic loaded — {done} tiles.", level=Qgis.MessageLevel.Success)
         elif result.get("error"):
             bar.pushCritical(MENU_TITLE, result.get("error"))
         elif missing == 0:                  # complete, but every tile was empty

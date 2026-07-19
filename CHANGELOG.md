@@ -3,6 +3,15 @@
 All notable changes to this project are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
+## [1.10.2] - 2026-07-18
+### Fixed
+- **Qt6 / QGIS 4 enum-scoping warnings.** Several QGIS enums were used unscoped
+  (`Qgis.Info`, `QgsTask.CanCancel`, `QgsMapLayerProxyModel.RasterLayer`,
+  `QgsBlockingNetworkRequest.NetworkError`, `QgsExtentWidget.ExpandedStyle`, …),
+  which PyQt6 (QGIS 4) rejects and the QGIS Plugin Repository flags. They are now
+  fully scoped (`Qgis.MessageLevel.Info`, `QgsTask.Flag.CanCancel`, …) — which
+  also works on QGIS 3's PyQt5, verified under 3.40.
+
 ## [1.10.1] - 2026-07-18
 ### Fixed
 - **Flight-year harmonise recognises more ArcGIS layer namings.** It previously

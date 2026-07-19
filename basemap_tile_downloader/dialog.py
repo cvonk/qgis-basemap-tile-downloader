@@ -145,7 +145,7 @@ class BasemapTileDialog(QDialog):
         # One combo for every source type: raster layers minus anything that
         # isn't a recognised WMS/WMTS/XYZ or local (GDAL) raster.
         self.layer_combo = QgsMapLayerComboBox()
-        self.layer_combo.setFilters(QgsMapLayerProxyModel.RasterLayer)
+        self.layer_combo.setFilters(QgsMapLayerProxyModel.Filter.RasterLayer)
         self.layer_combo.setAllowEmptyLayer(True)
         self._restrict_to_sources()
         self.layer_combo.layerChanged.connect(self._on_layer_changed)
@@ -157,7 +157,7 @@ class BasemapTileDialog(QDialog):
         # coordinates out in separate, clearly-labelled fields. The condensed
         # style packs them onto one comma-separated line that is unreadable in
         # locales using a comma decimal separator.
-        self.extent_widget = QgsExtentWidget(None, QgsExtentWidget.ExpandedStyle)
+        self.extent_widget = QgsExtentWidget(None, QgsExtentWidget.WidgetStyle.ExpandedStyle)
         if self._canvas is not None:
             # drawOnCanvasOption=False hides the "Draw on Canvas" button — it
             # doesn't work usefully from this modal dialog. "Map Canvas Extent"

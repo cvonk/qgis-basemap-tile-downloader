@@ -4,7 +4,7 @@ qgisMinimumVersion=3.40.8
 qgisMaximumVersion=4.99
 description=Download a WMS, WMTS, XYZ, or ArcGIS REST basemap over an extent and mosaic it into a GeoTIFF.
 about=Auto-detects whether the chosen layer is a WMS, WMTS, XYZ, or ArcGIS REST MapServer tile source. Tiles the request over a chosen extent (WMS GetMap at a chosen resolution/CRS, or WMTS / Web-Mercator {z}/{x}/{y} at a chosen zoom), downloads with adaptive throttling and a resumable SQLite work queue, georeferences each tile, and builds a compressed, tiled GeoTIFF mosaic (with overviews) using GDAL. Optionally reprojects to a chosen output CRS and crops to the exact extent. Requires the GDAL Python bindings. For personal and educational use only — respect each provider's Terms of Service and usage limits.
-version=1.10.1
+version=1.10.2
 author=Coert Vonk
 email=ing.c.j.s.vonk@gmail.com
 license=GPL-3.0-or-later
@@ -16,7 +16,12 @@ experimental=False
 deprecated=False
 category=Raster
 tags=wms,wmts,xyz,tiles,download,raster,mosaic,gdal,basemap,orthophoto,aoi,web mercator
-changelog=1.10.1 - Flight-year harmonise now recognises more ArcGIS layer
+changelog=1.10.2 - Qt6 / QGIS 4 fix: several QGIS enums were used unscoped
+    (Qgis.Info, QgsTask.CanCancel, QgsMapLayerProxyModel.RasterLayer, etc.),
+    which PyQt6 rejects and the QGIS Plugin Repository flags. They are now fully
+    scoped (Qgis.MessageLevel.Info, QgsTask.Flag.CanCancel, ...), which also
+    works on QGIS 3's PyQt5.
+    1.10.1 - Flight-year harmonise now recognises more ArcGIS layer
     namings (e.g. Land Tirol's "Image_2022" / "Image_2019_2021", which the old
     exact-"Image" match and word-boundary year regex missed). Services with a
     deep dated archive harmonise only the newest few years, so a current basemap

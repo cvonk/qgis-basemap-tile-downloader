@@ -185,11 +185,11 @@ def build_logger(work_dir):
 
     class _QH(logging.Handler):
         def emit(self, record):
-            lvl = {logging.DEBUG:    Qgis.Info,
-                   logging.INFO:     Qgis.Info,
-                   logging.WARNING:  Qgis.Warning,
-                   logging.ERROR:    Qgis.Critical,
-                   logging.CRITICAL: Qgis.Critical}.get(record.levelno, Qgis.Info)
+            lvl = {logging.DEBUG:    Qgis.MessageLevel.Info,
+                   logging.INFO:     Qgis.MessageLevel.Info,
+                   logging.WARNING:  Qgis.MessageLevel.Warning,
+                   logging.ERROR:    Qgis.MessageLevel.Critical,
+                   logging.CRITICAL: Qgis.MessageLevel.Critical}.get(record.levelno, Qgis.MessageLevel.Info)
             try:
                 QgsMessageLog.logMessage(self.format(record), LOG_TAB, lvl)
             except Exception:  # nosec B110
@@ -241,12 +241,12 @@ def blocking_get(url, timeout_ms=REQUEST_TIMEOUT_MS):
     if timeout_code is not None and err_code == timeout_code:
         timed_out = True
         error_str = reply.errorString() or "Request timed out."
-    elif err_code == QgsBlockingNetworkRequest.NetworkError:
+    elif err_code == QgsBlockingNetworkRequest.ErrorCode.NetworkError:
         error_str = reply.errorString()
         low = (error_str or "").lower()
         if "timeout" in low or "timed out" in low:
             timed_out = True
-    elif err_code == QgsBlockingNetworkRequest.ServerExceptionError:
+    elif err_code == QgsBlockingNetworkRequest.ErrorCode.ServerExceptionError:
         error_str = reply.errorString()
     return status, headers, body, error_str, timed_out
 
@@ -770,8 +770,8 @@ class BasemapTileDownloadTask(QgsTask):
         # plugin posts its own completion (and error) messages, so QGIS's generic
         # one is just noise, especially after a failure. (Silent needs QGIS 3.26+;
         # guarded in case it's absent.)
-        flags = QgsTask.CanCancel
-        silent = getattr(QgsTask, "Silent", None)
+        flags = QgsTask.Flag.CanCancel
+        silent = getattr(QgsTask.Flag, "Silent", None)
         if silent is not None:
             flags |= silent
         # User-facing wording: a local raster is "read/exported", remote tiles are
@@ -888,11 +888,11 @@ class BasemapTileDownloadTask(QgsTask):
                 # and mislead the user about what actually went wrong.
                 load_error = f"Mosaic file invalid: {tif}"
                 print(f"[Basemap Tile Downloader] WARNING: {load_error}")
-                QgsMessageLog.logMessage(load_error, LOG_TAB, Qgis.Critical)
+                QgsMessageLog.logMessage(load_error, LOG_TAB, Qgis.MessageLevel.Critical)
         elif not result and not self.was_cancelled:
             msg = str(self.exception) if self.exception else "Task failed."
             print(f"[Basemap Tile Downloader] FAILED: {msg}")
-            QgsMessageLog.logMessage(f"Task failed: {msg}", LOG_TAB, Qgis.Critical)
+            QgsMessageLog.logMessage(f"Task failed: {msg}", LOG_TAB, Qgis.MessageLevel.Critical)
 
         if callable(self._on_finished):
             try:
@@ -1388,19 +1388,19 @@ def run(layer=None, extent=None, extent_crs=None, opts=None, out_crs=None,
         msg = ("A Basemap Tile Downloader task is already running; not starting "
                "another. Cancel it in the Task Manager first to restart.")
         print(f"[Basemap Tile Downloader] {msg}")
-        QgsMessageLog.logMessage(msg, LOG_TAB, Qgis.Warning)
+        QgsMessageLog.logMessage(msg, LOG_TAB, Qgis.MessageLevel.Warning)
         return t
 
     source = source_for(layer)
     if source is None:
         msg = "Selected layer is not a recognised WMS/WMTS/XYZ or local raster (GeoTIFF) layer."
-        QgsMessageLog.logMessage(msg, LOG_TAB, Qgis.Critical)
+        QgsMessageLog.logMessage(msg, LOG_TAB, Qgis.MessageLevel.Critical)
         print(f"[Basemap Tile Downloader] ERROR: {msg}")
         return None
 
     if extent is None or extent.isEmpty():
         msg = "No extent to download."
-        QgsMessageLog.logMessage(msg, LOG_TAB, Qgis.Critical)
+        QgsMessageLog.logMessage(msg, LOG_TAB, Qgis.MessageLevel.Critical)
         print(f"[Basemap Tile Downloader] ERROR: {msg}")
         return None
     extent_crs = extent_crs or QgsProject.instance().crs().authid()
@@ -1409,7 +1409,7 @@ def run(layer=None, extent=None, extent_crs=None, opts=None, out_crs=None,
     try:
         params = source.extract_params(layer)
     except DownloaderError as e:
-        QgsMessageLog.logMessage(str(e), LOG_TAB, Qgis.Critical)
+        QgsMessageLog.logMessage(str(e), LOG_TAB, Qgis.MessageLevel.Critical)
         print(f"[Basemap Tile Downloader] ERROR: {e}")
         return None
 
