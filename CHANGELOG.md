@@ -3,6 +3,13 @@
 All notable changes to this project are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
+## [1.10.6] - 2026-07-19
+### Fixed
+- **Dialog tooltips wrap to a readable column.** Qt does not word-wrap a
+  plain-text tooltip, so the hover help added in 1.10.5 rendered as single very
+  wide lines running across the screen. Tooltips are now wrapped to 40 columns,
+  with continuation lines indented so the "On:" / "Off:" clauses still stand out.
+
 ## [1.10.5] - 2026-07-19
 ### Added
 - **Hover help on every dialog control.** The source-layer combo, extent
