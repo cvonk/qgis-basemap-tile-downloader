@@ -7,8 +7,16 @@ prepare(), and the dialog's resume check fingerprints freshly-extracted params,
 so the two must always agree (the bug this guards against re-showed the
 overwrite/ToS prompts on every resume of a harmonised job)."""
 
+import os
+
 from basemap_tile_downloader import engine
 from basemap_tile_downloader.sources import arcgis
+
+# Platform-native paths: the plugin only ever sees paths in the running OS's
+# own separators, and os.path.basename doesn't split Windows separators on the
+# POSIX CI runners.
+PATH_A = os.path.join(os.sep, "jobs", "a", "ortho.tif")
+PATH_B = os.path.join(os.sep, "jobs", "b", "ortho.tif")
 
 
 # ── redact_url ─────────────────────────────────────────────────────────────────
@@ -31,24 +39,24 @@ def test_redact_url_survives_garbage():
 
 # ── cache keys ─────────────────────────────────────────────────────────────────
 def test_cache_key_distinct_for_same_basename_in_different_dirs():
-    a = engine.cache_key_for(r"C:\jobs\a\ortho.tif", False, "fp")
-    b = engine.cache_key_for(r"C:\jobs\b\ortho.tif", False, "fp")
+    a = engine.cache_key_for(PATH_A, False, "fp")
+    b = engine.cache_key_for(PATH_B, False, "fp")
     assert a != b
     assert a.startswith("ortho-") and b.startswith("ortho-")
 
 
 def test_cache_key_stable_for_same_path():
-    p = r"C:\jobs\a\ortho.tif"
-    assert engine.cache_key_for(p, False, "fp") == engine.cache_key_for(p, False, "fp")
+    assert (engine.cache_key_for(PATH_A, False, "fp")
+            == engine.cache_key_for(PATH_A, False, "fp"))
 
 
 def test_cache_key_temporary_uses_fingerprint():
     assert engine.cache_key_for(None, True, "fp123") == "fp123"
-    assert engine.cache_key_for(r"C:\x\y.tif", True, "fp123") == "fp123"
+    assert engine.cache_key_for(PATH_A, True, "fp123") == "fp123"
 
 
 def test_legacy_cache_key_is_the_plain_basename():
-    assert engine.legacy_cache_key(r"C:\jobs\a\ortho.tif", False) == "ortho"
+    assert engine.legacy_cache_key(PATH_A, False) == "ortho"
     assert engine.legacy_cache_key(None, True) is None
 
 
