@@ -12,6 +12,7 @@ import configparser
 import math
 import os
 import subprocess  # nosec B404
+import textwrap
 
 from qgis.PyQt.QtWidgets import (
     QDialog, QFormLayout, QVBoxLayout, QHBoxLayout, QDialogButtonBox,
@@ -46,6 +47,26 @@ DEFAULT_GIVEUP_AFTER = engine.MAX_CONSECUTIVE_BACKPRESSURE  # consecutive fails 
 
 # Ask for confirmation above this estimated tile count.
 WARN_TILE_COUNT = 5000
+
+# Qt renders a plain-text tooltip WITHOUT word wrap, so an unwrapped sentence
+# becomes one very wide line running across the screen. Tooltips are therefore
+# written as ordinary prose below and wrapped to this column in one pass (see
+# _wrap_tooltips).
+TOOLTIP_WIDTH = 40
+
+
+def _wrap_tip(text):
+    """`text` wrapped to TOOLTIP_WIDTH. Each explicit line is wrapped on its
+    own, so the deliberate breaks between an "On:" / "Off:" clause survive;
+    continuation lines are indented so those clauses still stand out once
+    everything is this narrow. Rich text is left alone — Qt wraps that itself."""
+    if text.lstrip().startswith("<"):
+        return text
+    return "\n".join(
+        textwrap.fill(line, TOOLTIP_WIDTH, subsequent_indent="  ")
+        if line.strip() else line
+        for line in text.splitlines())
+
 
 _PLUGIN_DIR = os.path.dirname(__file__)
 
@@ -433,10 +454,20 @@ class BasemapTileDialog(QDialog):
         layout.addWidget(note)
         layout.addWidget(buttons)
 
+        self._wrap_tooltips()
         self._restore_state()
         self._on_layer_changed()
         self._update_estimate()
         self._sync_resample()
+
+    def _wrap_tooltips(self):
+        """Wrap the tooltips set above to a readable column width. Runs over
+        every widget this dialog owns, so a tooltip added later is wrapped too
+        without having to remember. Widgets we merely borrow (the map canvas)
+        keep QGIS's own tooltips untouched."""
+        for w in vars(self).values():
+            if isinstance(w, QWidget) and w is not self._canvas and w.toolTip():
+                w.setToolTip(_wrap_tip(w.toolTip()))
 
     # ── filtering / visibility ────────────────────────────────────────────────
     def _restrict_to_sources(self):
