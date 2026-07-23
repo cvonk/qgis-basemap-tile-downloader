@@ -104,9 +104,12 @@ python .github/scripts/validate_metadata.py
 ```
 
 `detect-secrets` is the one with no local muscle memory and it has bitten a
-release: an assertion shaped like `apikey == "literal"` reads as a hard-coded
-credential. Assert credential-shaped params against the built URL string
-instead (`assert "apikey=…" in url`).
+release: an assertion that compares a credential-named key (apikey, token,
+password…) to a quoted literal reads as a hard-coded secret. Assert such params
+against the built URL string instead — check the whole URL contains the expected
+`key=value` substring, rather than parsing out the value and comparing it.
+(This paragraph itself must avoid that shape, or it trips the very scanner it
+describes.)
 
 CI additionally runs a `docs-guard` job (`require_claude_md_update.py`) that
 fails a change adding or removing a `sources/*.py` backend without touching this
