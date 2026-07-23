@@ -48,3 +48,22 @@ jobs:
 
       - name: Validate metadata.txt
         run: python .github/scripts/validate_metadata.py
+
+  # Keeps CLAUDE.md honest: adding or removing a source backend must update it in
+  # the same change (see the script for the why and the deliberately narrow
+  # scope). Its own job so it can check out full history without slowing the main
+  # test job's shallow clone.
+  docs-guard:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0        # both BASE and HEAD must be present for the diff
+
+      - name: Require a CLAUDE.md update when a source backend is added/removed
+        env:
+          # PR: compare the PR's base against its head (github.sha is the merge
+          # commit, not the head). Push: compare against the pushed-over commit.
+          BASE_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.event.before }}
+          HEAD_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
+        run: python .github/scripts/require_claude_md_update.py

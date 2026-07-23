@@ -1,7 +1,9 @@
 # CLAUDE.md
 
 Guidance for working in this repository. Keep it accurate: when a change makes a
-statement here wrong, update the statement in the same change.
+statement here wrong, update the statement in the same change. Adding or removing
+a source backend is enforced — CI (`docs-guard`) fails such a change unless it
+also touches this file.
 
 ## What this is
 
@@ -59,7 +61,9 @@ When adding a backend, wire it in three places: the import+tuple in
 visibility in `_on_layer_changed`, the tile estimate in `_estimate_tiles`, and
 the opts dict in `values()`). Add response-classification tests to
 `tests/test_fetch_classification.py` and a backend-specific module like
-`tests/test_wcs.py`.
+`tests/test_wcs.py`. Update the backend list above in this file — CI's
+`docs-guard` job blocks a backend add/remove that leaves this file untouched
+(`.github/scripts/require_claude_md_update.py`).
 
 ## Conventions that trip you up
 
@@ -103,6 +107,11 @@ python .github/scripts/validate_metadata.py
 release: an assertion shaped like `apikey == "literal"` reads as a hard-coded
 credential. Assert credential-shaped params against the built URL string
 instead (`assert "apikey=…" in url`).
+
+CI additionally runs a `docs-guard` job (`require_claude_md_update.py`) that
+fails a change adding or removing a `sources/*.py` backend without touching this
+file — a diff-range check, so nothing to run locally, but expect it to fail a
+new-backend PR until you update the backend list here.
 
 The plain-Python run above uses the `qgis.*` stubs. To exercise real
 QGIS/GDAL code paths, run under the bundled interpreter:
