@@ -19,7 +19,7 @@ the resolution you choose.
 - **Plays nice with servers** — adaptive, per-source throttling and parallel fetches: fast when it can be, gentle when it must be.
 - **Never loses work** — a resumable SQLite queue picks an interrupted run back up exactly where it left off, and the cache can be moved or backed up.
 - **Skips redundant downloads** — overlapping jobs (XYZ/WMTS/WMS/WCS/ArcGIS) reuse tiles from a shared cache, sparing both time and your provider's quota.
-- **Finishes clean** — a compressed, tiled GeoTIFF with overviews, optionally reprojected and cropped to the exact extent, loaded straight into your project. Single-band rasters (e.g. a DTM) keep their nodata instead of gaining an alpha band.
+- **Finishes clean** — a compressed, tiled GeoTIFF with overviews, optionally reprojected and cropped to the exact extent, loaded straight into your project. Single-band data (e.g. an elevation DTM — whether from WMS, WCS, or a local raster) keeps its nodata instead of gaining an alpha band, and a mostly-empty result is flagged so a source that has no data over your area doesn't pass unnoticed.
 
 Requires the GDAL Python bindings (bundled with QGIS). Written for QGIS 3.40.8 and QGIS 4.2.
 
@@ -264,6 +264,18 @@ edge tiles.
 Check that the resolution / zoom and the coordinate reference systems suit your
 source. For XYZ, requesting a zoom finer than the provider serves only
 interpolates — it adds no real detail.
+
+**The export finished, but the output is mostly empty / all nodata.**
+Every tile can download successfully and the result still be blank over most of
+the extent — because the provider simply publishes nothing there. For a
+single-band coverage (e.g. a DTM), the run measures how much of the finished
+mosaic actually carries data and **warns when most of it is nodata** (the
+completion message and `download.log` report the percentage). Common causes: your
+extent reaches past the edge of the source's coverage (a regional DTM that stops
+at an administrative border), or the source raster you pointed at was itself only
+partly written. It's expected, too, when your AOI *polygon* is much smaller than
+its bounding box. If the warning is a surprise, check the source's real coverage
+over your area before relying on the output.
 
 **A run didn't finish — some tiles failed. What now?**
 Tiles can fail from server-side rate-limiting/throttling or a transient server

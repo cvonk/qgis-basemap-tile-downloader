@@ -408,14 +408,14 @@ class BasemapTileDialog(QDialog):
             "(a server refusing a block of tiles), then build a partial mosaic "
             "from what downloaded and leave the rest for a re-run. 0 = never give "
             "up (only the per-tile limit applies). Default 30.")
-        # Off by default: only WMS uses it, and it forgoes any server-side cache
-        # on retries (more load), so it's opt-in for the case it fixes.
+        # Off by default: only WMS and WCS use it, and it forgoes any server-side
+        # cache on retries (more load), so it's opt-in for the case it fixes.
         self.cache_bust_check = QCheckBox("Bypass cached server errors on retry")
         self.cache_bust_check.setToolTip(
-            "For WMS servers behind a cache/CDN. A WMS ServiceException (e.g. the "
-            "server briefly can't read its own data) comes back as a normal "
-            "'200 OK', so a cache may store that error and replay it for every "
-            "identical retry — the request never recovers.\n"
+            "For WMS/WCS servers behind a cache/CDN. A WMS or WCS ServiceException "
+            "(e.g. the server briefly can't read its own data) comes back as a "
+            "normal '200 OK', so a cache may store that error and replay it for "
+            "every identical retry — the request never recovers.\n"
             "On: each retry adds a throwaway parameter so the request differs and "
             "the server actually re-renders instead of replaying the cached "
             "failure. The first attempt is unchanged (a good cached tile is still "
