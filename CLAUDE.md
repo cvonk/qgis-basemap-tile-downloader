@@ -129,8 +129,9 @@ QGIS/GDAL code paths, run under the bundled interpreter:
 
 **Seeing a change in QGIS:** QGIS loads the plugin from *installed copies* under
 each profile root, not from this repo. After editing, run `sync.ps1` (copies the
-package into every QGIS3/QGIS4 profile it finds), then reload the plugin in QGIS.
-Repo edits are invisible until synced.
+package into every QGIS3/QGIS4 profile it finds — and the `tools/*.py` Processing
+scripts into each profile's `processing/scripts/`), then reload the plugin (or
+the Processing scripts) in QGIS. Repo edits are invisible until synced.
 
 ## Releasing
 
