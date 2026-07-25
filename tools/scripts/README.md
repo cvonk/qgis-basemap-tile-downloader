@@ -14,5 +14,6 @@ worked examples to adapt, not general tools.
 | --- | --- | --- |
 | `resize_aois.py` | QGIS **Python Console**: `exec(open(r"<path>/resize_aois.py", encoding="utf-8").read())` | Resize every AOI polygon layer in the open project to a square about its current centre (edit `SIZE_EW`/`SIZE_NS`). |
 | `crop_aois.py` | Terminal (QGIS Python), **QGIS closed**: `python crop_aois.py --project "<path>.qgz"` | Crop every per-AOI GeoTIFF the project references to its AOI square, in place, backing up originals once into `_backup_precrop/`. `--dry-run` to preview; re-runnable (crops from the pristine backup). |
+| `salzburg_dgm1_tiles.py` | `python salzburg_dgm1_tiles.py` | Write `salzburg_dgm1_tiles.csv` — the download URLs for a fixed set of Salzburg DGM1 (1 m LiDAR) tiles from the province's open ALS archive. Feed the CSV to aria2c (`aria2c -c -x 16 -s 16 -i salzburg_dgm1_tiles.csv`), then merge in QGIS. Edit the `IDS` list for other sheets. |
 
 Both need only PyQGIS + the GDAL Python bindings that QGIS ships.
