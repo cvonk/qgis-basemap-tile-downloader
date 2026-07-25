@@ -38,10 +38,13 @@ Pure Python; the only heavy dependency is the GDAL bindings that ship with QGIS.
 - `tools/` — standalone QGIS Processing scripts that complement the plugin (e.g.
   build a `/vsicurl` VRT over remote DTM tiles for an AOI, to then export with
   the GeoTIFF backend). NOT part of the shipped package — the release archives
-  only `basemap_tile_downloader/`, and the plugin never imports them. `ruff` and
-  `detect-secrets` still scan them (they run over the whole repo), so keep them
-  clean; `flake8`, `bandit`, `compileall` and the tests are package-scoped and
-  skip them.
+  only `basemap_tile_downloader/`, and the plugin never imports them. `sync.ps1`
+  deploys the top-level `tools/*.py` to each profile's `processing/scripts/`;
+  `tools/scripts/` holds one-off, project-specific utility scripts that are NOT
+  Toolbox algorithms and are NOT deployed (one runs at import). `ruff` and
+  `detect-secrets` still scan everything under `tools/` (they run over the whole
+  repo), so keep it clean; `flake8`, `bandit`, `compileall` and the tests are
+  package-scoped and skip it.
 - `.github/workflows/` — `ci.yml` (every push/PR) and `release.yml` (on a `v*`
   tag). `.github/scripts/validate_metadata.py` checks the manifest.
 

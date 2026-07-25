@@ -4,6 +4,11 @@ Standalone **QGIS Processing algorithms** that complement the plugin — they ar
 *not* part of the plugin package (the release archive ships only
 `basemap_tile_downloader/`), and the plugin never imports them.
 
+The top-level `tools/*.py` here are the Processing algorithms (deployed to a
+profile's `processing/scripts/` by `sync.ps1`). One-off **utility scripts** that
+are *not* Toolbox algorithms live under [`tools/scripts/`](scripts/) and are
+never deployed there — see that folder's note.
+
 They solve the "discovery" half that the plugin deliberately leaves out: finding
 and assembling the remote tiles that cover an area of interest into a single
 virtual raster (VRT), which you then export with the plugin's **GeoTIFF (local

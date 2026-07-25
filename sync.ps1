@@ -12,10 +12,11 @@
 # each one that exists — syncing only QGIS3 silently leaves QGIS 4 on an old
 # version. Roots that don't exist are skipped.
 #
-# It ALSO copies the standalone QGIS Processing scripts in tools/ into each
+# It ALSO copies the top-level Processing scripts in tools\*.py into each
 # profile's processing\scripts\ folder, so the Toolbox picks up repo edits on
 # reload. Those are copied file-by-file (not mirrored), so any other scripts you
-# keep in that folder are left untouched.
+# keep in that folder are left untouched. Subfolders (e.g. tools\scripts\, which
+# holds non-Toolbox utility scripts) are deliberately NOT deployed.
 # Usage:  pwsh -File sync.ps1     (or right-click -> Run with PowerShell)
 $pluginsRoots = @('QGIS3', 'QGIS4') |
     ForEach-Object { Join-Path $env:APPDATA "QGIS\$_\profiles\default\python\plugins" } |
