@@ -162,15 +162,22 @@ class TyrolDgmAoi(QgsProcessingAlgorithm):
                 p = None
             if p:
                 sources.append(p)
-            feedback.setProgress(90.0 * (i + 1) / len(tiles))
+            feedback.setProgress(25.0 * (i + 1) / len(tiles))
         if not sources:
             raise QgsProcessingException(
                 f"Found tiles but no {prefix.upper()} raster inside their ZIPs.")
-        feedback.pushInfo(f"Warping {len(sources)} tile(s) → {out_path}")
+        feedback.pushInfo(f"Warping {len(sources)} tile(s) → {out_path} "
+                          f"(reads each remote tile — large AOIs take a while)")
 
         # AOI polygon (in the output CRS) as the crop cutline.
         rect = self.parameterAsExtent(parameters, self.AOI, context, out_crs)
         cut = self._cutline(rect, out_crs)
+
+        # Advance the bar 25→100% during the warp (its slow part), and let the
+        # user cancel it — gdal.Warp reports no progress on its own otherwise.
+        def _warp_cb(pct, _msg, _data):
+            feedback.setProgress(25.0 + 75.0 * pct)
+            return 0 if feedback.isCanceled() else 1
 
         opts = gdal.WarpOptions(
             format="GTiff", dstSRS=out_crs.authid(),
@@ -178,7 +185,8 @@ class TyrolDgmAoi(QgsProcessingAlgorithm):
             cutlineDSName=cut, cropToCutline=True,
             resampleAlg="bilinear", srcNodata=NODATA, dstNodata=NODATA,
             creationOptions=["COMPRESS=DEFLATE", "PREDICTOR=3", "TILED=YES",
-                             "BIGTIFF=IF_SAFER"], multithread=True)
+                             "BIGTIFF=IF_SAFER"], multithread=True,
+            callback=_warp_cb)
         ds = gdal.Warp(out_path, sources, options=opts)
         if ds is None:
             raise QgsProcessingException("gdal.Warp produced no output.")
