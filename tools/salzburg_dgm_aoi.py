@@ -14,6 +14,12 @@ Data © Land Salzburg (SAGIS), CC BY 4.0.
 Drop in a profile's processing/scripts/ folder; appears under Scripts ▸ Austria.
 """
 import math
+import os
+import shutil
+import tempfile
+import time
+import urllib.error
+import urllib.request
 
 from qgis.core import (
     QgsProcessingAlgorithm, QgsProcessingException,
@@ -35,6 +41,30 @@ TILE = 2500.0                      # tile side, metres
 SRC_NODATA = -3.4028234663852886e+38   # the archive's nodata (min float)
 DST_NODATA = -9999.0
 MAX_TILES = 1200                   # ~7500 km²; guard against an over-large AOI
+
+
+def _download(url, dst, feedback, tries=5):
+    """Download `url` to `dst`, retrying transient failures. Returns dst on
+    success, None on a 404 (tile doesn't exist) or after exhausting retries.
+    Downloading first — rather than streaming each tile into gdal.Warp — is what
+    makes a large run reliable: this server is slow and drops connections under
+    sustained load, and a dropped read mid-warp loses the whole (long) warp."""
+    for attempt in range(tries):
+        if feedback.isCanceled():
+            return None
+        try:
+            with urllib.request.urlopen(url, timeout=180) as r, \
+                    open(dst, "wb") as f:                       # nosec B310 (https)
+                shutil.copyfileobj(r, f, 1 << 20)
+            if gdal.Open(dst) is not None:
+                return dst
+        except urllib.error.HTTPError as e:
+            if e.code == 404:
+                return None
+        except Exception:      # noqa: BLE001  (transient network error → retry)
+            pass
+        time.sleep(2 * (attempt + 1))
+    return None
 
 
 def sheet_id(te, tn):
@@ -128,58 +158,48 @@ class SalzburgDgmAoi(QgsProcessingAlgorithm):
         feedback.pushInfo(f"{len(candidates)} candidate tile(s) in EPSG:31258; "
                           f"checking which exist…")
 
-        for k, v in {"GDAL_DISABLE_READDIR_ON_OPEN": "EMPTY_DIR",
-                     "CPL_VSIL_CURL_ALLOWED_EXTENSIONS": ".tif",
-                     "GDAL_HTTP_MULTIRANGE": "YES", "GDAL_HTTP_VERSION": "2",
-                     "GDAL_HTTP_MAX_RETRY": "3", "GDAL_HTTP_RETRY_DELAY": "2",
-                     "VSI_CACHE": "TRUE"}.items():
-            gdal.SetConfigOption(k, v)
+        # Download each existing tile to a temp dir first (with retry), then warp
+        # the LOCAL files. Streaming ~60 tiles straight into gdal.Warp over ~20 min
+        # is unreliable on this server — a dropped read aborts the whole warp
+        # (returns None near the end). Local files can't drop mid-warp, and a
+        # failed download just retries one tile.
+        tmp = tempfile.mkdtemp(prefix="salzburg_dgm_")
+        try:
+            sources = []
+            for i, sid in enumerate(candidates):
+                if feedback.isCanceled():
+                    return {}
+                got = _download(f"{BASE}/{sid}_dgm_rp_1_m.tif",
+                                os.path.join(tmp, sid + ".tif"), feedback)
+                if got:
+                    sources.append(got)
+                feedback.setProgress(88.0 * (i + 1) / len(candidates))
+            if not sources:
+                raise QgsProcessingException(
+                    "None of the candidate tiles exist — the extent is outside "
+                    "Salzburg's DGM coverage.")
+            feedback.pushInfo(f"Downloaded {len(sources)} of {len(candidates)} "
+                              f"tile(s); warping → {out_path}")
 
-        sources = []
-        for i, sid in enumerate(candidates):
-            if feedback.isCanceled():
-                return {}
-            url = f"/vsicurl/{BASE}/{sid}_dgm_rp_1_m.tif"
-            try:
-                ds = gdal.Open(url)
-            except RuntimeError:
-                ds = None
-            if ds is not None:
-                sources.append(url)
-                ds = None
-            feedback.setProgress(25.0 * (i + 1) / len(candidates))
-        if not sources:
-            raise QgsProcessingException(
-                "None of the candidate tiles exist — the extent is outside "
-                "Salzburg's DGM coverage.")
-        feedback.pushInfo(f"{len(sources)} of {len(candidates)} tile(s) exist; "
-                          f"warping → {out_path}")
-
-        rect_out = self.parameterAsExtent(parameters, self.AOI, context, out_crs)
-        cut = self._cutline(rect_out, out_crs)
-
-        # NB: no multithread — a Python progress callback fired from gdalwarp's
-        # worker threads makes cross-thread Qt calls into `feedback` and can abort
-        # the warp (returns None). Single-threaded keeps the callback on this
-        # thread; the exception guard is belt-and-suspenders.
-        def _cb(pct, _m, _d):
-            try:
-                feedback.setProgress(25.0 + 75.0 * pct)
-                return 0 if feedback.isCanceled() else 1
-            except Exception:      # noqa: BLE001
-                return 1
-
-        ds = gdal.Warp(out_path, sources, options=gdal.WarpOptions(
-            format="GTiff", dstSRS=out_crs.authid(), xRes=res, yRes=res,
-            targetAlignedPixels=True, cutlineDSName=cut, cropToCutline=True,
-            resampleAlg="bilinear", srcNodata=SRC_NODATA, dstNodata=DST_NODATA,
-            creationOptions=["COMPRESS=DEFLATE", "PREDICTOR=3", "TILED=YES",
-                             "BIGTIFF=IF_SAFER"], callback=_cb))
-        if ds is None:
-            raise QgsProcessingException("gdal.Warp produced no output.")
-        ds.BuildOverviews("AVERAGE", [2, 4, 8, 16])
-        xs, ys = ds.RasterXSize, ds.RasterYSize
-        ds = None
+            rect_out = self.parameterAsExtent(parameters, self.AOI, context, out_crs)
+            cut = self._cutline(rect_out, out_crs)
+            # srcSRS pinned — the archive's tiles are all EPSG:31258, and stating it
+            # avoids an intermittent "source has no SRS" cutline warning.
+            ds = gdal.Warp(out_path, sources, options=gdal.WarpOptions(
+                format="GTiff", srcSRS=TILE_CRS, dstSRS=out_crs.authid(),
+                xRes=res, yRes=res, targetAlignedPixels=True,
+                cutlineDSName=cut, cropToCutline=True, resampleAlg="bilinear",
+                srcNodata=SRC_NODATA, dstNodata=DST_NODATA,
+                creationOptions=["COMPRESS=DEFLATE", "PREDICTOR=3", "TILED=YES",
+                                 "BIGTIFF=IF_SAFER"]))
+            if ds is None:
+                raise QgsProcessingException("gdal.Warp produced no output.")
+            ds.BuildOverviews("AVERAGE", [2, 4, 8, 16])
+            xs, ys = ds.RasterXSize, ds.RasterYSize
+            ds = None
+        finally:
+            shutil.rmtree(tmp, ignore_errors=True)
+        feedback.setProgress(100)
         feedback.pushInfo(f"✓ {xs} × {ys} px at {res} m, {out_crs.authid()}, "
                           f"nodata {DST_NODATA:g}")
         return {self.OUTPUT: out_path}

@@ -15,6 +15,10 @@ Tirol (tiris), CC BY 4.0.
 Drop in a profile's processing/scripts/ folder; appears under Scripts ▸ Austria.
 """
 import json
+import os
+import shutil
+import tempfile
+import time
 import urllib.parse
 import urllib.request
 
@@ -113,14 +117,33 @@ class TyrolDgmAoi(QgsProcessingAlgorithm):
         return out
 
     @staticmethod
-    def _dgm_in_zip(url, prefix):
-        """/vsizip//vsicurl/ path to the DGM (or DOM) GeoTIFF inside the tile ZIP,
-        or None. Excludes the '_shd_' hillshade rasters."""
+    def _fetch_dgm(url, prefix, dst, feedback, tries=4):
+        """Copy the DGM (or DOM) GeoTIFF out of a tile ZIP to the local file `dst`,
+        retrying transient failures. Reads only that member (not the DOM/hillshade
+        siblings) via /vsizip//vsicurl/, but writes it to disk so the later warp
+        runs on local files — streaming every member straight into a long warp
+        drops out on this server. Returns dst, or None (no DGM / gave up)."""
         vz = "/vsizip/{/vsicurl/%s}" % url
-        for e in (gdal.ReadDir(vz) or []):
-            el = e.lower()
-            if el.startswith(prefix + "_") and "_shd_" not in el and el.endswith(".tif"):
-                return vz + "/" + e
+        for attempt in range(tries):
+            if feedback.isCanceled():
+                return None
+            try:
+                member = None
+                for e in (gdal.ReadDir(vz) or []):
+                    el = e.lower()
+                    if (el.startswith(prefix + "_") and "_shd_" not in el
+                            and el.endswith(".tif")):
+                        member = vz + "/" + e
+                        break
+                if member is None:
+                    return None              # ZIP has no matching raster
+                gdal.Translate(dst, member,
+                               options=gdal.TranslateOptions(format="GTiff"))
+                if gdal.Open(dst) is not None:
+                    return dst
+            except Exception:      # noqa: BLE001  (transient network error → retry)
+                pass
+            time.sleep(2 * (attempt + 1))
         return None
 
     def processAlgorithm(self, parameters, context, feedback):
@@ -153,52 +176,42 @@ class TyrolDgmAoi(QgsProcessingAlgorithm):
                      "VSI_CACHE": "TRUE"}.items():
             gdal.SetConfigOption(k, v)
 
-        sources = []
-        for i, (name, url) in enumerate(tiles):
-            if feedback.isCanceled():
-                return {}
-            try:
-                p = self._dgm_in_zip(url, prefix)
-            except RuntimeError:
-                p = None
-            if p:
-                sources.append(p)
-            feedback.setProgress(25.0 * (i + 1) / len(tiles))
-        if not sources:
-            raise QgsProcessingException(
-                f"Found tiles but no {prefix.upper()} raster inside their ZIPs.")
-        feedback.pushInfo(f"Warping {len(sources)} tile(s) → {out_path} "
-                          f"(reads each remote tile — large AOIs take a while)")
+        # Copy each tile's DGM to a local temp file first (retryable), then warp
+        # the LOCAL files. Streaming ~200 remote members into one long warp is
+        # unreliable — a dropped read aborts the whole warp near the end. Local
+        # files can't drop mid-warp, and a failed copy just retries one tile.
+        tmp = tempfile.mkdtemp(prefix="tyrol_dgm_")
+        try:
+            sources = []
+            for i, (name, url) in enumerate(tiles):
+                if feedback.isCanceled():
+                    return {}
+                dst = os.path.join(tmp, f"{name or i}.tif")
+                if self._fetch_dgm(url, prefix, dst, feedback):
+                    sources.append(dst)
+                feedback.setProgress(88.0 * (i + 1) / len(tiles))
+            if not sources:
+                raise QgsProcessingException(
+                    f"Found tiles but no {prefix.upper()} raster inside their ZIPs.")
+            feedback.pushInfo(f"Downloaded {len(sources)} tile(s); warping → {out_path}")
 
-        # AOI polygon (in the output CRS) as the crop cutline.
-        rect = self.parameterAsExtent(parameters, self.AOI, context, out_crs)
-        cut = self._cutline(rect, out_crs)
-
-        # Advance the bar 25→100% during the warp (its slow part), and let the
-        # user cancel it — gdal.Warp reports no progress on its own otherwise.
-        # NB: no multithread — a Python callback fired from gdalwarp's worker
-        # threads makes cross-thread Qt calls into `feedback` and can abort the
-        # warp (returns None after doing the work). Single-threaded keeps it safe.
-        def _warp_cb(pct, _msg, _data):
-            try:
-                feedback.setProgress(25.0 + 75.0 * pct)
-                return 0 if feedback.isCanceled() else 1
-            except Exception:      # noqa: BLE001
-                return 1
-
-        opts = gdal.WarpOptions(
-            format="GTiff", dstSRS=out_crs.authid(),
-            xRes=res, yRes=res, targetAlignedPixels=True,
-            cutlineDSName=cut, cropToCutline=True,
-            resampleAlg="bilinear", srcNodata=NODATA, dstNodata=NODATA,
-            creationOptions=["COMPRESS=DEFLATE", "PREDICTOR=3", "TILED=YES",
-                             "BIGTIFF=IF_SAFER"], callback=_warp_cb)
-        ds = gdal.Warp(out_path, sources, options=opts)
-        if ds is None:
-            raise QgsProcessingException("gdal.Warp produced no output.")
-        ds.BuildOverviews("AVERAGE", [2, 4, 8, 16])
-        xs, ys = ds.RasterXSize, ds.RasterYSize
-        ds = None
+            rect = self.parameterAsExtent(parameters, self.AOI, context, out_crs)
+            cut = self._cutline(rect, out_crs)
+            ds = gdal.Warp(out_path, sources, options=gdal.WarpOptions(
+                format="GTiff", dstSRS=out_crs.authid(),
+                xRes=res, yRes=res, targetAlignedPixels=True,
+                cutlineDSName=cut, cropToCutline=True,
+                resampleAlg="bilinear", srcNodata=NODATA, dstNodata=NODATA,
+                creationOptions=["COMPRESS=DEFLATE", "PREDICTOR=3", "TILED=YES",
+                                 "BIGTIFF=IF_SAFER"]))
+            if ds is None:
+                raise QgsProcessingException("gdal.Warp produced no output.")
+            ds.BuildOverviews("AVERAGE", [2, 4, 8, 16])
+            xs, ys = ds.RasterXSize, ds.RasterYSize
+            ds = None
+        finally:
+            shutil.rmtree(tmp, ignore_errors=True)
+        feedback.setProgress(100)
         feedback.pushInfo(f"✓ {xs} × {ys} px at {res} m, {out_crs.authid()}, "
                           f"nodata {NODATA:g}")
         return {self.OUTPUT: out_path}
