@@ -149,6 +149,7 @@ class TyrolDgmAoi(QgsProcessingAlgorithm):
         for k, v in {"GDAL_DISABLE_READDIR_ON_OPEN": "EMPTY_DIR",
                      "CPL_VSIL_CURL_ALLOWED_EXTENSIONS": ".zip,.tif",
                      "GDAL_HTTP_MULTIRANGE": "YES", "GDAL_HTTP_VERSION": "2",
+                     "GDAL_HTTP_MAX_RETRY": "3", "GDAL_HTTP_RETRY_DELAY": "2",
                      "VSI_CACHE": "TRUE"}.items():
             gdal.SetConfigOption(k, v)
 
@@ -175,9 +176,15 @@ class TyrolDgmAoi(QgsProcessingAlgorithm):
 
         # Advance the bar 25→100% during the warp (its slow part), and let the
         # user cancel it — gdal.Warp reports no progress on its own otherwise.
+        # NB: no multithread — a Python callback fired from gdalwarp's worker
+        # threads makes cross-thread Qt calls into `feedback` and can abort the
+        # warp (returns None after doing the work). Single-threaded keeps it safe.
         def _warp_cb(pct, _msg, _data):
-            feedback.setProgress(25.0 + 75.0 * pct)
-            return 0 if feedback.isCanceled() else 1
+            try:
+                feedback.setProgress(25.0 + 75.0 * pct)
+                return 0 if feedback.isCanceled() else 1
+            except Exception:      # noqa: BLE001
+                return 1
 
         opts = gdal.WarpOptions(
             format="GTiff", dstSRS=out_crs.authid(),
@@ -185,8 +192,7 @@ class TyrolDgmAoi(QgsProcessingAlgorithm):
             cutlineDSName=cut, cropToCutline=True,
             resampleAlg="bilinear", srcNodata=NODATA, dstNodata=NODATA,
             creationOptions=["COMPRESS=DEFLATE", "PREDICTOR=3", "TILED=YES",
-                             "BIGTIFF=IF_SAFER"], multithread=True,
-            callback=_warp_cb)
+                             "BIGTIFF=IF_SAFER"], callback=_warp_cb)
         ds = gdal.Warp(out_path, sources, options=opts)
         if ds is None:
             raise QgsProcessingException("gdal.Warp produced no output.")

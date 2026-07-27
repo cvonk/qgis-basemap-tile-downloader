@@ -131,6 +131,7 @@ class SalzburgDgmAoi(QgsProcessingAlgorithm):
         for k, v in {"GDAL_DISABLE_READDIR_ON_OPEN": "EMPTY_DIR",
                      "CPL_VSIL_CURL_ALLOWED_EXTENSIONS": ".tif",
                      "GDAL_HTTP_MULTIRANGE": "YES", "GDAL_HTTP_VERSION": "2",
+                     "GDAL_HTTP_MAX_RETRY": "3", "GDAL_HTTP_RETRY_DELAY": "2",
                      "VSI_CACHE": "TRUE"}.items():
             gdal.SetConfigOption(k, v)
 
@@ -157,16 +158,23 @@ class SalzburgDgmAoi(QgsProcessingAlgorithm):
         rect_out = self.parameterAsExtent(parameters, self.AOI, context, out_crs)
         cut = self._cutline(rect_out, out_crs)
 
+        # NB: no multithread — a Python progress callback fired from gdalwarp's
+        # worker threads makes cross-thread Qt calls into `feedback` and can abort
+        # the warp (returns None). Single-threaded keeps the callback on this
+        # thread; the exception guard is belt-and-suspenders.
         def _cb(pct, _m, _d):
-            feedback.setProgress(25.0 + 75.0 * pct)
-            return 0 if feedback.isCanceled() else 1
+            try:
+                feedback.setProgress(25.0 + 75.0 * pct)
+                return 0 if feedback.isCanceled() else 1
+            except Exception:      # noqa: BLE001
+                return 1
 
         ds = gdal.Warp(out_path, sources, options=gdal.WarpOptions(
             format="GTiff", dstSRS=out_crs.authid(), xRes=res, yRes=res,
             targetAlignedPixels=True, cutlineDSName=cut, cropToCutline=True,
             resampleAlg="bilinear", srcNodata=SRC_NODATA, dstNodata=DST_NODATA,
             creationOptions=["COMPRESS=DEFLATE", "PREDICTOR=3", "TILED=YES",
-                             "BIGTIFF=IF_SAFER"], multithread=True, callback=_cb))
+                             "BIGTIFF=IF_SAFER"], callback=_cb))
         if ds is None:
             raise QgsProcessingException("gdal.Warp produced no output.")
         ds.BuildOverviews("AVERAGE", [2, 4, 8, 16])
