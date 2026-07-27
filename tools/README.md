@@ -20,6 +20,7 @@ downloaded until you export — the VRT streams only the pixels it reads.
 | `swisstopo_stac_vrt_algorithm.py` | Scripts ▸ swisstopo | swisstopo STAC → COG VRT (swissALTI3D DTM 0.5/2 m, SWISSIMAGE ortho 0.1/2 m; `--collection` override for other tiled swisstopo COG collections) |
 | `bavaria_dgm1_aoi_vrt.py` | Scripts ▸ Germany (Bayern) | Bavaria open DGM1 (1 m terrain) tiles → VRT over just the AOI's tiles |
 | `tyrol_dgm_aoi.py` | Scripts ▸ Austria | Tyrol (tiris) ALS DGM/DOM → a DTM GeoTIFF for an AOI: queries the tile index, reads the DGM inside each remote ZIP via `/vsizip//vsicurl/`, warps to a chosen CRS/resolution. Outputs a GeoTIFF (mixed source zones are reprojected), not a VRT. |
+| `salzburg_dgm_aoi.py` | Scripts ▸ Austria | Salzburg open DGM1 (1 m) → a DTM GeoTIFF for an AOI. No tile index exists, so the sheet ids (EPSG:31258 grid) are computed from the AOI and each is probed over `/vsicurl/`, then warped to a chosen CRS/resolution. (Companion to `scripts/salzburg_dgm1_tiles.py`, the fixed-list CSV generator.) |
 
 ## Install
 
