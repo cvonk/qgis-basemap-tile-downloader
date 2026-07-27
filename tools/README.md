@@ -17,6 +17,7 @@ downloaded until you export — the VRT streams only the pixels it reads.
 
 | Script | Toolbox entry | What it does |
 | --- | --- | --- |
+| `reproject_resize_aoi.py` | Scripts ▸ Area of interest | Reproject an AOI's centre to a target CRS and rebuild it as a straight, axis-aligned box of a fixed size (width/height in m, both default 16500). Centre is preserved exactly; output is a one-polygon layer to use as an export extent. |
 | `swisstopo_stac_vrt_algorithm.py` | Scripts ▸ swisstopo | swisstopo STAC → COG VRT (swissALTI3D DTM 0.5/2 m, SWISSIMAGE ortho 0.1/2 m; `--collection` override for other tiled swisstopo COG collections) |
 | `bavaria_dgm1_aoi_vrt.py` | Scripts ▸ Germany (Bayern) | Bavaria open DGM1 (1 m terrain) tiles → VRT over just the AOI's tiles |
 | `tyrol_dgm_aoi.py` | Scripts ▸ Austria | Tyrol (tiris) ALS DGM/DOM → a DTM GeoTIFF for an AOI: queries the tile index, downloads each tile's DGM (retryable), then warps the local files to a chosen CRS/resolution. Outputs a GeoTIFF (mixed source zones are reprojected), not a VRT. |
