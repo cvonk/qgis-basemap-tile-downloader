@@ -182,7 +182,7 @@ class BasemapTileDialog(QDialog):
             "unrecognised raster layers are not listed.")
         self._restrict_to_sources()
         self.layer_combo.layerChanged.connect(self._on_layer_changed)
-        form.addRow("Source layer (WMS/WMTS/WCS/XYZ/GeoTIFF):", self.layer_combo)
+        form.addRow("Source layer:", self.layer_combo)
 
         # Extent selector like a Processing extent parameter: the condensed style
         # is a single line — a summary field plus a dropdown (Calculate from Layer
