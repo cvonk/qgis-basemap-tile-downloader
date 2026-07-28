@@ -1,13 +1,19 @@
 # -*- coding: utf-8 -*-
-"""ArcGIS REST MapServer source backend.
+"""ArcGIS REST MapServer / ImageServer source backend.
 
-Downloads via the service's `export` endpoint (bbox + size → image), tiling an
-extent the same origin-anchored way WMS does. Faithful by default (no colour
-change). Optionally *harmonises flight years*: for a service whose layers are
-per-year orthophotos (e.g. Land Salzburg's `Orthofoto_Land_Salzburg`), it fetches
-each year separately and colour-matches the older years to the newest on the
-seam between them, then composites — removing the year-boundary seam without the
-global muting a whole-image balance would cause.  Requires GDAL + numpy only.
+Downloads via the service's image endpoint (bbox + size → image), tiling an
+extent the same origin-anchored way WMS does — `export` for a MapServer,
+`exportImage` for an ImageServer (e.g. GIS Steiermark's `OGD_DOP` orthophoto).
+QGIS loads both service kinds under the `arcgismapserver` provider; the endpoint
+and its query differ (an ImageServer has no sublayers, so no `layers=show:` and
+no per-year harmonise), which the one flag `is_image` in params switches on.
+
+Faithful by default (no colour change). Optionally *harmonises flight years*: for
+a MapServer whose layers are per-year orthophotos (e.g. Land Salzburg's
+`Orthofoto_Land_Salzburg`), it fetches each year separately and colour-matches
+the older years to the newest on the seam between them, then composites —
+removing the year-boundary seam without the global muting a whole-image balance
+would cause.  Requires GDAL + numpy only.
 """
 
 import re
@@ -87,6 +93,10 @@ def extract_params(layer):
     if m and url[: m.start()].lower().endswith(("mapserver", "imageserver")):
         sel = sel or m.group(1)
         url = url[: m.start()]
+    # An ImageServer has no sublayers and uses /exportImage (not /export); its
+    # image request drops the `layers=show:` and `transparent` params a MapServer
+    # takes. Everything downstream branches on this one flag.
+    is_image = url.lower().endswith("imageserver")
     crs = (uri.param("crs") or uri.param("CRS") or "").upper()
     if not crs:
         crs = layer.crs().authid()
@@ -94,7 +104,8 @@ def extract_params(layer):
         "url": url,
         "crs": crs,                              # refined to the service SR in prepare()
         "format": "png32",                       # RGBA: alpha marks a tile's coverage
-        "sel_show": sel,                         # None → composite (all visible layers)
+        "sel_show": None if is_image else sel,   # None → composite (all visible layers)
+        "is_image": is_image,                    # ImageServer → /exportImage
         "years": [],                             # filled by prepare() when harmonising
     }
 
@@ -224,7 +235,13 @@ def _export_url(params, opts, tile):
     q = {"bbox": f'{tile["xmin"]},{tile["ymin"]},{tile["xmax"]},{tile["ymax"]}',
          "bboxSR": epsg, "imageSR": epsg,
          "size": f"{tile_pixels},{tile_pixels}",
-         "format": params.get("format", "png32"), "transparent": "true", "f": "image"}
+         "format": params.get("format", "png32"), "f": "image"}
+    if params.get("is_image"):
+        # ImageServer: /exportImage, no sublayers, alpha marks no-data on its own
+        # (no `transparent` param). Keep the request minimal — defaults give the
+        # published mosaic.
+        return params["url"] + "/exportImage?" + urllib.parse.urlencode(q)
+    q["transparent"] = "true"
     if tile.get("layer_id") not in (None, ""):
         q["layers"] = f'show:{tile["layer_id"]}'
     return params["url"] + "/export?" + urllib.parse.urlencode(q)

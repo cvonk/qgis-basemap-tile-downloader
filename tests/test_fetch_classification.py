@@ -174,6 +174,25 @@ def test_arcgis_empty_body_is_an_error(monkeypatch):
     assert "Empty response" in str(e)
 
 
+# ── MapServer vs ImageServer endpoint ─────────────────────────────────────────
+def test_arcgis_mapserver_export_url():
+    url = arcgis._export_url(ARCGIS_PARAMS, {"tile_pixels": 1024, "resolution": 0.5},
+                             ARCGIS_TILE)
+    assert "/export?" in url and "/exportImage?" not in url
+    assert "transparent=true" in url
+
+def test_arcgis_imageserver_uses_exportimage_without_layers():
+    params = dict(ARCGIS_PARAMS,
+                  url="https://gis.example/image/rest/services/OGD_DOP/Ortho/ImageServer",
+                  is_image=True, sel_show=None)
+    tile = dict(ARCGIS_TILE, layer_id=None)
+    url = arcgis._export_url(params, {"tile_pixels": 1024, "resolution": 0.5}, tile)
+    assert "/exportImage?" in url
+    # ImageServer has no sublayers and no transparent flag
+    assert "layers=" not in url and "transparent" not in url
+    assert "bboxSR=31254" in url and "imageSR=31254" in url
+
+
 def test_wms_service_exception_is_server_error(monkeypatch):
     body = (b'<?xml version="1.0"?><ServiceExceptionReport>'
             b"<ServiceException>msDrawMap(): failed</ServiceException>"
