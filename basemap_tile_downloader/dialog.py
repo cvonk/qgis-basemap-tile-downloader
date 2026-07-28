@@ -184,13 +184,13 @@ class BasemapTileDialog(QDialog):
         self.layer_combo.layerChanged.connect(self._on_layer_changed)
         form.addRow("Source layer (WMS/WMTS/WCS/XYZ/GeoTIFF):", self.layer_combo)
 
-        # Extent selector like QGIS's "Convert Map to Raster" dialog: a dropdown
-        # (Calculate from Layer / Use Current Map Canvas Extent / …) plus the
-        # extent coordinates. Use the default expanded style, which lays the four
-        # coordinates out in separate, clearly-labelled fields. The condensed
-        # style packs them onto one comma-separated line that is unreadable in
-        # locales using a comma decimal separator.
-        self.extent_widget = QgsExtentWidget(None, QgsExtentWidget.WidgetStyle.ExpandedStyle)
+        # Extent selector like a Processing extent parameter: the condensed style
+        # is a single line — a summary field plus a dropdown (Calculate from Layer
+        # / Use Current Map Canvas Extent / …) — so it stays compact in this
+        # already-busy dialog. It joins the coordinates with commas, which is a
+        # little harder to read in a comma-decimal locale, but the dropdown paths
+        # (a layer's bbox or the map canvas) are the usual way to set it.
+        self.extent_widget = QgsExtentWidget(None, QgsExtentWidget.WidgetStyle.CondensedStyle)
         if self._canvas is not None:
             # drawOnCanvasOption=False hides the "Draw on Canvas" button — it
             # doesn't work usefully from this modal dialog. "Map Canvas Extent"
@@ -199,20 +199,13 @@ class BasemapTileDialog(QDialog):
         self.extent_widget.setOutputCrs(QgsProject.instance().crs())
         self.extent_widget.extentChanged.connect(self._update_estimate)
         self.extent_widget.extentChanged.connect(self._update_zoom_label)
-
-        # Wrap the extent selector in a collapsible group (open by default) so it
-        # can be folded away once the extent is set.
-        extent_group = QgsCollapsibleGroupBox("Extent to render")
-        extent_group.setCollapsed(False)
         self.extent_widget.setToolTip(
             "The area to download/export, like QGIS's Convert Map to Raster "
             "dialog: pick 'Calculate from Layer' (a layer's bounding box), "
             "'Map Canvas Extent' (the current view), or type the coordinates.\n"
             "The extent may be in any CRS — it is reprojected to whatever the "
             "source needs.")
-        extent_layout = QVBoxLayout(extent_group)
-        extent_layout.setContentsMargins(6, 6, 6, 6)
-        extent_layout.addWidget(self.extent_widget)
+        form.addRow("Extent to render:", self.extent_widget)
         # "Crop to the exact extent" lives with the extent it applies to.
         self.clip_check = QCheckBox("Crop output to the exact extent")
         self.clip_check.setToolTip(
@@ -220,8 +213,7 @@ class BasemapTileDialog(QDialog):
             "little past the requested extent.\n"
             "On: trim the output to the exact extent rectangle.\n"
             "Off: keep the full tile-aligned coverage.")
-        extent_layout.addWidget(self.clip_check)
-        form.addRow(extent_group)
+        form.addRow("", self.clip_check)
 
         # Tile size + resolution (WMS and local rasters), in a collapsible group
         # that is open by default. Greyed out for GeoTIFF, which is exported at
