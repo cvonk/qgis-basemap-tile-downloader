@@ -21,13 +21,17 @@ downloaded until you export — the VRT streams only the pixels it reads.
 | `swisstopo_stac_vrt_algorithm.py` | Scripts ▸ swisstopo | swisstopo STAC → COG VRT (swissALTI3D DTM 0.5/2 m, SWISSIMAGE ortho 0.1/2 m; `--collection` override for other tiled swisstopo COG collections) |
 | `bavaria_dgm1_aoi_vrt.py` | Scripts ▸ Germany (Bayern) | Bavaria open DGM1 (1 m terrain) tiles → VRT over just the AOI's tiles |
 | `tyrol_dgm_aoi.py` | Scripts ▸ Austria | Tyrol (tiris) ALS DGM/DOM → a DTM GeoTIFF for an AOI: queries the tile index, downloads each tile's DGM (retryable), then warps the local files to a chosen CRS/resolution. Outputs a GeoTIFF (mixed source zones are reprojected), not a VRT. |
+| `austria_bev_dgm_aoi.py` | Scripts ▸ Austria | BEV nationwide ALS DGM/DOM (1 m) → a DTM GeoTIFF for an AOI — covers **all of Austria**, including regions with no open per-tile service of their own (e.g. **Upper Austria**). Tiles are COGs on a 50 km EPSG:3035 grid, so only the AOI window is read over `/vsicurl/` (no 50 km download) and warped to a chosen CRS/resolution. The per-tile reference date (Stichtag) is probed automatically. |
 | `salzburg_dgm_aoi.py` | Scripts ▸ Austria | Salzburg open DGM1 (1 m) → a DTM GeoTIFF for an AOI. No tile index exists, so the sheet ids (EPSG:31258 grid) are computed from the AOI; each tile is downloaded (retryable) and the local files are warped to a chosen CRS/resolution. (Companion to `scripts/salzburg_dgm1_tiles.py`, the fixed-list CSV generator.) |
 
-> The two Austria tools **download tiles to a temp dir first, then warp the local
-> files** — the provincial servers are slow and drop connections under sustained
-> load, which aborts a long streaming warp. Downloading first (with per-tile
-> retry) makes large AOIs reliable; it also means most of the runtime is the
-> download, so the progress bar is meaningful throughout.
+> The two **provincial** Austria tools (Tyrol, Salzburg) **download tiles to a
+> temp dir first, then warp the local files** — those servers are slow and drop
+> connections under sustained load, which aborts a long streaming warp.
+> Downloading first (with per-tile retry) makes large AOIs reliable; it also
+> means most of the runtime is the download, so the progress bar is meaningful
+> throughout. The **BEV** tool is different: its tiles are COGs, so it reads only
+> the AOI window over `/vsicurl/` (GDAL retries each small range request) and
+> warps that — no whole-tile download, and reliable on BEV's national server.
 
 ## Install
 
