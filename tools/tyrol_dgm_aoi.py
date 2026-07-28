@@ -8,8 +8,8 @@ tiris tile index (an ArcGIS FeatureServer of tile footprints + download URLs),
 reads the DGM/DOM GeoTIFF *inside* each remote ZIP via /vsizip//vsicurl/, and
 warps them to your chosen CRS and resolution, cropped to the AOI.
 
-The native tiles are 0.5 m, Float32, nodata -9999, in Austria GK (EPSG:31254 west
-/ 31257 central) — this reprojects/mosaics them into one output. Data © Land
+The native tiles are 0.5 m, Float32, nodata -9999, in Austria GK (EPSG:31254 West
+/ 31255 Central) — this reprojects/mosaics them into one output. Data © Land
 Tirol (tiris), CC BY 4.0.
 
 Drop in a profile's processing/scripts/ folder; appears under Scripts ▸ Austria.
@@ -71,7 +71,7 @@ class TyrolDgmAoi(QgsProcessingAlgorithm):
             "by hand.\n\nIt queries the tiris tile index, reads the DGM/DOM inside "
             "each remote ZIP via /vsizip//vsicurl/, and warps them to your CRS and "
             "resolution, cropped to the AOI. Native tiles are 0.5 m Float32 "
-            "(EPSG:31254/31257); pick a coarser resolution (e.g. 1–2 m) for a "
+            "(EPSG:31254/31255); pick a coarser resolution (e.g. 1–2 m) for a "
             "large area. Data © Land Tirol, CC BY 4.0."
         )
 
