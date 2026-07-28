@@ -176,11 +176,12 @@ class BasemapTileDownloaderPlugin:
 
     def _on_mosaic_start(self):
         """Show a canvas message-bar notice when the fetch phase ends and the
-        mosaic build begins (runs on the main thread). The progress bar is already
-        at 100% here, but the mosaic step reports no progress and can take a while
-        — this reassures the user it isn't stuck. Pushed as a persistent widget
-        (not a self-dismissing message) so it stays for the whole build, and is
-        cleared in _on_run_finished."""
+        mosaic build begins (runs on the main thread). The task progress bar keeps
+        climbing through the build (the warp reports its own progress over the
+        reserved tail), but a slow warp still benefits from a plain-language notice
+        that it isn't stuck. Pushed as a persistent widget (not a self-dismissing
+        message) so it stays for the whole build, and is cleared in
+        _on_run_finished."""
         self._clear_progress()          # fetch done — retire the per-tile counter
         label = QLabel("All tiles ready — building the GeoTIFF mosaic "
                        "(this can take a moment)…")

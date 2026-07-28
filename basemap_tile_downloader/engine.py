@@ -106,6 +106,11 @@ CONCURRENCY              = 4       # default parallel tile fetches; a source may
 DATA_COVERAGE_WARN_PCT = 50.0
 
 CLEANUP_TILES_AFTER_MOSAIC = False
+# The task progress bar is split: the tile fetch fills 0 → FETCH_PROGRESS_MAX, and
+# the mosaic build (VRT + Warp/Translate, driven by a GDAL progress callback) fills
+# the remaining tail up to 100. Downloads are usually the bulk of the work, so the
+# fetch gets the lion's share; the tail still moves visibly during a slow warp.
+FETCH_PROGRESS_MAX = 90.0
 WORK_SUBDIR_NAME = "__btdcache__"
 LOG_TAB          = "Basemap Tile Downloader"
 TASK_DESC        = "Basemap tile download"       # remote sources (WMS/WMTS/XYZ)
@@ -956,7 +961,8 @@ def annotate_tile_bands(params, tile_path, logger):
 
 
 def build_mosaic(tile_paths, work_dir, logger, tif_path, native_crs, out_crs,
-                 resample="bilinear", cutline=None, add_alpha=True, nodata=None):
+                 resample="bilinear", cutline=None, add_alpha=True, nodata=None,
+                 progress_cb=None):
     if gdal is None:
         raise DownloaderError("GDAL Python bindings unavailable; cannot build mosaic.")
     if not tile_paths:
@@ -991,11 +997,14 @@ def build_mosaic(tile_paths, work_dir, logger, tif_path, native_crs, out_crs,
 
     reproject = (out_crs and native_crs and out_crs.upper() != native_crs.upper())
     warp_alg  = "near" if resample == "none" else resample
+    # GDAL drives progress_cb over the (slow) warp/translate as fraction 0..1; only
+    # pass it when given, so callers that don't want it aren't affected.
+    cb = dict(callback=progress_cb) if callable(progress_cb) else {}
     # A cutline must be applied with Warp, so warp even when not reprojecting.
     try:
         if reproject or cutline:
             warp_kwargs = dict(format="GTiff", dstSRS=out_crs, resampleAlg=warp_alg,
-                               creationOptions=creation, multithread=True)
+                               creationOptions=creation, multithread=True, **cb)
             if not add_alpha and nodata is not None:
                 warp_kwargs.update(srcNodata=nodata, dstNodata=nodata)
             if cutline:
@@ -1007,7 +1016,7 @@ def build_mosaic(tile_paths, work_dir, logger, tif_path, native_crs, out_crs,
         else:
             logger.info("Translate VRT → %s (%s)", tif, native_crs)
             ds = gdal.Translate(tif, vrt, options=gdal.TranslateOptions(
-                format="GTiff", creationOptions=creation))
+                format="GTiff", creationOptions=creation, **cb))
     except Exception as e:
         raise DownloaderError(f"Mosaic creation failed: {e}")
     ds.BuildOverviews("AVERAGE", [2, 4, 8, 16])
@@ -1433,7 +1442,10 @@ class BasemapTileDownloadTask(QgsTask):
 
                         processed += 1
                         done_n = done_count + failed_count
-                        self.setProgress(100.0 * done_n / total if total else 100.0)
+                        # Fetch fills 0 → FETCH_PROGRESS_MAX; the mosaic build drives
+                        # the remaining tail to 100 (see below).
+                        self.setProgress(FETCH_PROGRESS_MAX * done_n / total
+                                         if total else FETCH_PROGRESS_MAX)
                         # Live per-tile counter in the message bar. Throttled so a
                         # fast source can't flood the UI event loop; the final tile
                         # always emits so the count lands exactly on the total.
@@ -1456,10 +1468,10 @@ class BasemapTileDownloadTask(QgsTask):
                                 consecutive_bp, throttle.status(), done_count)
 
             # The fetch phase is over (drained, cancelled, or circuit-broken).
-            # Bump progress to 100% now so the task bar doesn't sit frozen at the
-            # last fetch percentage (e.g. 93%) through the mosaic-build step,
-            # which reports no progress of its own and can take a while.
-            self.setProgress(100.0)
+            # Pin progress at the fetch ceiling; the mosaic build (below) drives the
+            # bar from here to 100 via a GDAL callback. Runs that stop short of a
+            # mosaic (deferred/cancelled/no-data) finish at 100 via the finally.
+            self.setProgress(FETCH_PROGRESS_MAX)
 
             # By default the mosaic is built only once EVERY tile is downloaded:
             # an interrupted run (cancel or server give-up) or one with failed/
@@ -1502,6 +1514,7 @@ class BasemapTileDownloadTask(QgsTask):
                         "their retries — deferring the mosaic. Re-run with the same "
                         "settings to retry the failed tiles; the mosaic is built "
                         "once every tile is downloaded.", n_failed, total)
+                self.setProgress(100.0)             # no mosaic step to fill the tail
                 return                              # no partial mosaic
 
             if incomplete:
@@ -1521,11 +1534,12 @@ class BasemapTileDownloadTask(QgsTask):
                 # Every downloaded tile came back empty (no data in this area) —
                 # nothing to build. Not an error; simply leave no output.
                 logger.warning("No non-empty tiles to mosaic (of %d).", total)
+                self.setProgress(100.0)
                 return
 
-            # Build the mosaic. The progress bar is already pinned at 100%; tell
-            # the UI the (progress-less) build is starting so it can reassure the
-            # user it isn't stuck.
+            # Build the mosaic. The bar is at FETCH_PROGRESS_MAX and the warp drives
+            # it the rest of the way; tell the UI the build has started so it can
+            # swap the per-tile counter for a "building mosaic" notice.
             self.mosaicStarted.emit()
 
             cutline = self._build_cutline(extent_geom, logger) if self._clip else None
@@ -1538,6 +1552,7 @@ class BasemapTileDownloadTask(QgsTask):
                                    self._output_path, self._native_crs, self._out_crs,
                                    self._resample, cutline, self._params, self._opts, logger)
                 self.result_tif_path = tif_path
+                self.setProgress(100.0)            # compose reports no sub-progress
                 logger.info("=== Done. Harmonised mosaic → %s ===", tif_path)
                 return
             # A source may ask to preserve a nodata value (single-band) instead of
@@ -1554,10 +1569,21 @@ class BasemapTileDownloadTask(QgsTask):
             get_hints = getattr(self._source, "mosaic_hints", None)
             if callable(get_hints):
                 hints = get_hints(self._params, self._opts) or {}
+
+            # GDAL calls this over the warp/translate with fraction 0..1; map it
+            # onto the reserved tail of the task bar so the build isn't a frozen
+            # 100%. Always returns 1 (never aborts) — a user cancel here would
+            # otherwise surface as a GDAL error rather than a clean stop.
+            def _mosaic_progress(fraction, _msg=None, _data=None):
+                self.setProgress(FETCH_PROGRESS_MAX
+                                 + fraction * (100.0 - FETCH_PROGRESS_MAX))
+                return 1
+
             vrt_path, tif_path, data_pct = build_mosaic(
                 tile_paths, self.work_dir, logger, self._output_path,
                 self._native_crs, self._out_crs, self._resample, cutline,
-                add_alpha=hints.get("add_alpha", True), nodata=hints.get("nodata"))
+                add_alpha=hints.get("add_alpha", True), nodata=hints.get("nodata"),
+                progress_cb=_mosaic_progress)
             self.result_tif_path = tif_path
             # Surfaced in the completion message: a mosaic can be complete and
             # still be mostly nodata (see report_data_coverage).
@@ -1571,6 +1597,7 @@ class BasemapTileDownloadTask(QgsTask):
                 try: os.remove(vrt_path)
                 except OSError: pass
 
+            self.setProgress(100.0)               # land exactly on 100 after the warp
             logger.info("=== Done. Mosaic → %s ===", tif_path)
         finally:
             queue.close()
