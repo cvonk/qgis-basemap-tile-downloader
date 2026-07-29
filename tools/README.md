@@ -17,6 +17,7 @@ downloaded until you export — the VRT streams only the pixels it reads.
 
 | Script | Toolbox entry | What it does |
 | --- | --- | --- |
+| `harmonise_orthophotos.py` | Scripts ▸ Orthophoto | Colour-match several overlapping orthophotos (add newest first) and composite them into one seam-reduced GeoTIFF — the plugin's ArcGIS *harmonise flight years*, but for rasters you provide (e.g. Styria's per-period DOP `Flug_2022_2024_RGB` / `_2019_2021_RGB` / `_2016_2018_RGB`, which are separate ImageServers). Download each period with the plugin, then merge here. |
 | `reproject_resize_aoi.py` | Scripts ▸ Area of interest | Reproject an AOI's centre to a target CRS and rebuild it as a straight, axis-aligned box of a fixed size (width/height in m, both default 16500). Centre is preserved exactly; output is a one-polygon layer to use as an export extent. |
 | `swisstopo_stac_vrt_algorithm.py` | Scripts ▸ swisstopo | swisstopo STAC → COG VRT (swissALTI3D DTM 0.5/2 m, SWISSIMAGE ortho 0.1/2 m; `--collection` override for other tiled swisstopo COG collections) |
 | `bavaria_dgm1_aoi_vrt.py` | Scripts ▸ Germany (Bayern) | Bavaria open DGM1 (1 m terrain) tiles → VRT over just the AOI's tiles |
