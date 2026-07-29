@@ -61,27 +61,32 @@ class ReprojectResizeAoi(QgsProcessingAlgorithm):
             "and height in metres (both default 15500 m — set them equal for a "
             "square). Output is a one-polygon layer usable directly as an export "
             "extent for the DGM/ortho tools or the plugin.\n\nThe AOI is a vector "
-            "layer (its extent's centre is used) and defaults to the active layer. "
-            "Width/height are interpreted in the target CRS's units — use a "
-            "projected CRS (metres), not a geographic one (degrees)."
+            "layer (its extent's centre is used) and defaults to the active layer; "
+            "the target CRS defaults to that layer's CRS (resize in place — change "
+            "it to reproject). Width/height are interpreted in the target CRS's "
+            "units — use a projected CRS (metres), not a geographic one (degrees)."
         )
 
     def initAlgorithm(self, config=None):
         # Default the AOI to the active layer when it's a vector layer, so with an
-        # AOI selected in the Layers panel this runs in one click. iface is absent
-        # headless (Processing model / batch) — fall back to no default there.
-        default_aoi = None
+        # AOI selected in the Layers panel this runs in one click. Also default the
+        # target CRS to that layer's CRS, so the box comes out in the AOI's own CRS
+        # by default (resize in place). iface is absent headless (Processing model /
+        # batch) — fall back to no AOI default and EPSG:32632 there.
+        default_aoi, default_crs = None, "EPSG:32632"
         try:
             from qgis.utils import iface
             active = iface.activeLayer() if iface is not None else None
             if isinstance(active, QgsVectorLayer):
                 default_aoi = active.id()
+                if active.crs().isValid():
+                    default_crs = active.crs().authid() or default_crs
         except Exception:      # pragma: no cover  (no GUI / iface)
-            default_aoi = None
+            default_aoi, default_crs = None, "EPSG:32632"
         self.addParameter(QgsProcessingParameterVectorLayer(
             self.AOI, "Area of interest (vector layer)", defaultValue=default_aoi))
         self.addParameter(QgsProcessingParameterCrs(
-            self.CRS, "Target CRS", defaultValue="EPSG:32632"))
+            self.CRS, "Target CRS", defaultValue=default_crs))
         self.addParameter(QgsProcessingParameterNumber(
             self.WIDTH, "Width — West↔East (m)",
             type=QgsProcessingParameterNumber.Double,
