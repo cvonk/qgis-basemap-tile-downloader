@@ -481,7 +481,9 @@ def build_tile_grid(extent_geom, extent_crs, params, opts, logger):
         raise DownloaderError("Could not reproject the extent to the request CRS.")
 
     bb   = region.boundingBox()
-    step = tile_pixels * resolution
+    # resolution is metres/pixel; convert to the request CRS's units so a
+    # geographic (lon/lat) coverage tiles in degrees, not 100s of degrees.
+    step = engine.grid_step_units(tile_pixels, resolution, req_crs)
     if step <= 0:
         raise DownloaderError("Tile size in map units is ≤ 0 – check resolution.")
 

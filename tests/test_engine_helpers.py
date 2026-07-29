@@ -118,6 +118,23 @@ def test_format_size():
     assert engine.format_size(5 * 1024**3) == "5.0 GB"
 
 
+# ── metre resolution → request-CRS units (geographic sources must convert) ─────
+class _FakeCrs:
+    def __init__(self, geographic): self._g = geographic
+    def isGeographic(self): return self._g
+
+def test_grid_step_projected_is_metres_unchanged():
+    # A projected CRS keeps metres: 1024 px × 0.5 m = 512 map units.
+    assert engine.grid_step_units(1024, 0.5, _FakeCrs(False)) == 1024 * 0.5
+
+def test_grid_step_geographic_converts_metres_to_degrees():
+    # A geographic CRS divides by metres-per-degree, so a 1 m tile is a fraction
+    # of a degree — not 1024° (which produced the "Invalid longitude" / 0×0 warp).
+    step = engine.grid_step_units(1024, 1.0, _FakeCrs(True))
+    assert step == 1024.0 / engine.METERS_PER_DEGREE
+    assert 0 < step < 1.0                       # well under a degree, as it must be
+
+
 # ── ArcGIS fingerprint must ignore what prepare() resolves ─────────────────────
 ARCGIS_PRE = {"url": "https://gis.example/rest/services/Ortho/MapServer",
               "crs": "EPSG:31254", "format": "png32", "sel_show": None,

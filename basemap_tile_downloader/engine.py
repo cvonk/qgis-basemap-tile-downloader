@@ -308,6 +308,30 @@ def parse_retry_after(value):
         return None
 
 
+# Metres per degree at the equator — the WMS/WMTS "standardized rendering pixel
+# size" convention (a spherical approximation, latitude-independent). Used to turn
+# a metre resolution into degrees for a geographic (lon/lat) request CRS.
+METERS_PER_DEGREE = 111319.49079327358
+
+
+def grid_step_units(tile_pixels, resolution_m, req_crs):
+    """Tile side in the request CRS's own units, from a metre resolution.
+
+    The metre-based backends (WMS, ArcGIS, WCS) tile with step = tile_pixels ×
+    resolution, which is correct only when the request CRS is projected (metres).
+    For a geographic CRS the units are degrees, so a metre step would blow up to
+    hundreds of degrees per tile — producing out-of-range coordinates ("Invalid
+    longitude") and a degenerate mosaic. Convert to degrees in that case. A single
+    equatorial factor keeps the tiles square in degrees (slightly over-tiling
+    east–west at high latitude); each tile is georeferenced with its true degree
+    bounds, so the mosaic is still exact after the warp to the output CRS.
+
+    `req_crs` is a QgsCoordinateReferenceSystem. Returns the tile side (map units).
+    """
+    step = tile_pixels * resolution_m
+    return step / METERS_PER_DEGREE if req_crs.isGeographic() else step
+
+
 # ─────────────────────────────────────────────
 # GEOREFERENCE A TILE  (used by every source)
 # ─────────────────────────────────────────────
