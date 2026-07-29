@@ -7,6 +7,7 @@ prepare(), and the dialog's resume check fingerprints freshly-extracted params,
 so the two must always agree (the bug this guards against re-showed the
 overwrite/ToS prompts on every resume of a harmonised job)."""
 
+import logging
 import os
 
 from basemap_tile_downloader import engine
@@ -133,6 +134,40 @@ def test_grid_step_geographic_converts_metres_to_degrees():
     step = engine.grid_step_units(1024, 1.0, _FakeCrs(True))
     assert step == 1024.0 / engine.METERS_PER_DEGREE
     assert 0 < step < 1.0                       # well under a degree, as it must be
+
+
+# ── a stale queue (same fingerprint, different tile count) must be rebuilt ─────
+def _tiles(n):
+    return [{"id": i, "col": i, "row": 0} for i in range(n)]
+
+def test_queue_rebuilt_when_grid_tile_count_changes(tmp_path):
+    # An older plugin seeded 1 tile; the fixed grid yields 3 for the SAME
+    # fingerprint. The resume must wipe the stale queue and reseed, not keep the 1.
+    db = str(tmp_path / "tiles.sqlite")
+    meta = {"fingerprint": "abc"}
+    q = engine.TileQueue(db, logging.getLogger("t"))
+    q.populate_if_empty(_tiles(1), meta)
+    assert q.total() == 1
+    q.close()
+
+    q = engine.TileQueue(db, logging.getLogger("t"))
+    q.populate_if_empty(_tiles(3), meta)          # same fingerprint, new grid
+    assert q.total() == 3
+    q.close()
+
+def test_queue_resumes_when_tile_count_matches(tmp_path):
+    # Same fingerprint and same tile count → genuine resume, queue kept as-is.
+    db = str(tmp_path / "tiles.sqlite")
+    meta = {"fingerprint": "abc"}
+    q = engine.TileQueue(db, logging.getLogger("t"))
+    q.populate_if_empty(_tiles(3), meta)
+    q.mark_done(0, None)                          # mark one done to prove no wipe
+    q.close()
+
+    q = engine.TileQueue(db, logging.getLogger("t"))
+    q.populate_if_empty(_tiles(3), meta)
+    assert q.total() == 3 and q.counts()["done"] == 1
+    q.close()
 
 
 # ── ArcGIS fingerprint must ignore what prepare() resolves ─────────────────────

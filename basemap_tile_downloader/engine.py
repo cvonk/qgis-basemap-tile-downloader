@@ -473,6 +473,7 @@ class TileQueue:
         return os.path.normpath(p if os.path.isabs(p) else os.path.join(self.work_dir, p))
 
     def populate_if_empty(self, tiles, meta, work_dir=None):
+        work_dir = work_dir or self.work_dir      # wipe path rebuilds here
         stored_fp = None
         try:
             row = self._c.execute(
@@ -482,13 +483,28 @@ class TileQueue:
         except Exception:  # nosec B110
             pass
 
-        current_fp = meta.get("fingerprint")
-        has_queue  = self._c.execute("SELECT COUNT(*) FROM tiles").fetchone()[0] > 0
+        current_fp   = meta.get("fingerprint")
+        stored_count = self._c.execute("SELECT COUNT(*) FROM tiles").fetchone()[0]
+        has_queue    = stored_count > 0
 
-        if has_queue and current_fp and stored_fp != current_fp:
-            self.logger.warning(
-                "Job parameters changed (fingerprint %s -> %s). Wiping queue.",
-                stored_fp, current_fp)
+        # Wipe a stale queue when the job's parameters changed (fingerprint), OR
+        # when the freshly-built grid has a different tile count than the stored
+        # queue. The latter catches a queue seeded by an older plugin whose grid
+        # math differed but whose fingerprint is unchanged — e.g. a geographic
+        # (lon/lat) source that used to tile in 100s of degrees (one giant tile)
+        # and now tiles correctly; resuming that 1-tile queue would rebuild the
+        # broken mosaic forever.
+        fp_changed   = has_queue and current_fp and stored_fp != current_fp
+        grid_changed = has_queue and not fp_changed and len(tiles) != stored_count
+        if fp_changed or grid_changed:
+            if fp_changed:
+                self.logger.warning(
+                    "Job parameters changed (fingerprint %s -> %s). Wiping queue.",
+                    stored_fp, current_fp)
+            else:
+                self.logger.warning(
+                    "Tile grid changed (%d -> %d tiles; likely a plugin update). "
+                    "Wiping stale queue.", stored_count, len(tiles))
             self.close()
             for name in ("tiles.sqlite", "tiles.sqlite-wal", "tiles.sqlite-shm",
                          "mosaic.vrt", "mosaic.tif", "cutline.gpkg"):
