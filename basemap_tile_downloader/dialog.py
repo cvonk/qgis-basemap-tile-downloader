@@ -768,7 +768,12 @@ class BasemapTileDialog(QDialog):
                 # greyed), so estimate with that, not the spinbox value.
                 res = (params.get("native_res") if name == "GeoTIFF"
                        else self.res_spin.value()) or self.res_spin.value()
-                step = self.tile_spin.value() * res
+                # Match build_tile_grid: a metre resolution becomes degrees for a
+                # geographic request CRS, else the estimate reads "1 tile" for a
+                # lon/lat source (the grid step would be 100s of degrees).
+                step = engine.grid_step_units(
+                    self.tile_spin.value(), res,
+                    QgsCoordinateReferenceSystem(params["crs"]))
                 if step <= 0:
                     return None
                 return (max(1, math.ceil(bb.width() / step)) *
