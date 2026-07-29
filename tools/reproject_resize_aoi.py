@@ -4,7 +4,7 @@ Reproject & resize an AOI — a QGIS Processing algorithm.
 
 Takes an area-of-interest vector layer (any CRS), reprojects its *centre* to a
 target CRS, and builds a fresh axis-aligned rectangle of a fixed size (default
-16500 m) around that centre — so the AOI keeps its location but becomes a clean,
+15500 m) around that centre — so the AOI keeps its location but becomes a clean,
 straight box in the target CRS's grid (no rotation from meridian convergence, no
 odd fractional extent). The output is a single-polygon layer you can feed straight
 into the DGM/ortho tools or the plugin as your export extent.
@@ -58,7 +58,7 @@ class ReprojectResizeAoi(QgsProcessingAlgorithm):
             "build a fresh axis-aligned rectangle of a fixed size around that "
             "centre.\n\nThe centre is preserved exactly; the box is straight in "
             "the target CRS's grid (no rotation, no fractional extent). Set width "
-            "and height in metres (both default 16500 m — set them equal for a "
+            "and height in metres (both default 15500 m — set them equal for a "
             "square). Output is a one-polygon layer usable directly as an export "
             "extent for the DGM/ortho tools or the plugin.\n\nThe AOI is a vector "
             "layer (its extent's centre is used) and defaults to the active layer. "
@@ -85,11 +85,11 @@ class ReprojectResizeAoi(QgsProcessingAlgorithm):
         self.addParameter(QgsProcessingParameterNumber(
             self.WIDTH, "Width — West↔East (m)",
             type=QgsProcessingParameterNumber.Double,
-            defaultValue=16500.0, minValue=1.0))
+            defaultValue=15500.0, minValue=1.0))
         self.addParameter(QgsProcessingParameterNumber(
             self.HEIGHT, "Height — North↔South (m)",
             type=QgsProcessingParameterNumber.Double,
-            defaultValue=16500.0, minValue=1.0))
+            defaultValue=15500.0, minValue=1.0))
         self.addParameter(QgsProcessingParameterFeatureSink(
             self.OUTPUT, "Reprojected AOI",
             type=QgsProcessing.TypeVectorPolygon))
