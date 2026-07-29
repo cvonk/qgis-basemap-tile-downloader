@@ -24,6 +24,18 @@ PREFERRED_FORMATS = [
     ["image/png"],
 ]
 
+# QGIS WMS provider URI keys that are NOT WMS GetMap parameters — never forward
+# them to the server. Chief offender: timeDimensionExtent, the full list of a
+# temporal layer's available dates QGIS stores on the URI. (Lowercased; QGIS
+# varies the casing on the URI.)
+QGIS_INTERNAL_URI_KEYS = frozenset({
+    "dpimode", "tilepixelratio", "contextualwmslegend", "featurecount",
+    "timedimensionextent", "temporalsource", "enabletemporal",
+    "referencetimedimensionextent", "timedimensionreference", "timedimensiontype",
+    "ignoregetmapurl", "ignoregetfeatureinfourl", "ignoreaxisorientation",
+    "invertaxisorientation", "smoothpixmaptransform", "maxwidth", "maxheight",
+})
+
 
 # ─────────────────────────────────────────────
 # DETECTION / PARAMS
@@ -67,11 +79,18 @@ def extract_params(layer):
     if not params["crs"]:
         params["crs"] = layer.crs().authid()
 
-    known = {"url", "URL", "layers", "LAYERS", "styles", "STYLES",
-             "crs", "CRS", "srs", "SRS", "format", "FORMAT", "dpiMode", "type"}
+    # Everything not handled above becomes an extra GetMap parameter — EXCEPT
+    # QGIS-internal provider keys, which aren't WMS GetMap parameters. Chief
+    # offender: timeDimensionExtent, the full list of a temporal layer's available
+    # dates QGIS stores on the URI; forwarding it bloats every request URL (and the
+    # shared-cache signature), and can exceed a server's URL-length limit. A real
+    # per-request parameter the user set (TIME, ELEVATION, an api key, …) is not in
+    # this list and still passes through. Case-insensitive — QGIS URI casing varies.
+    handled = {"url", "layers", "styles", "crs", "srs", "format", "type"}
     if hasattr(uri, "parameterKeys"):
         for key in uri.parameterKeys():
-            if key not in known:
+            kl = key.lower()
+            if kl not in handled and kl not in QGIS_INTERNAL_URI_KEYS:
                 params["extra"][key] = uri.param(key)
     return params
 
@@ -292,8 +311,9 @@ def _getmap_url(params, opts, tile, attempt=0):
     s("bbox", bbox)
 
     for k, v in (params.get("extra") or {}).items():
-        if v is not None and k.lower() not in (
-                "tilepixelratio", "contextualwmslegend", "featurecount", "dpimode"):
+        # extract_params already drops QGIS-internal keys; re-check here so a
+        # resumed job (params re-extracted each run) can't leak one either.
+        if v is not None and k.lower() not in QGIS_INTERNAL_URI_KEYS:
             s(k, v)
 
     # Retry cache-buster. A WMS ServiceException comes back as HTTP 200 with an
