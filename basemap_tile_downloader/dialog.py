@@ -199,10 +199,21 @@ class BasemapTileDialog(QDialog):
         self.extent_widget.setOutputCrs(QgsProject.instance().crs())
         self.extent_widget.extentChanged.connect(self._update_estimate)
         self.extent_widget.extentChanged.connect(self._update_zoom_label)
+        # The condensed summary field, so "Calculate from Layer" can show the
+        # layer's name instead of four long numbers (see _show_extent_source).
+        # Private QGIS child — absent on a version that renames it, in which case
+        # the field simply keeps showing the coordinates.
+        self._condensed_edit = self.extent_widget.findChild(
+            QLineEdit, "mCondensedLineEdit")
+        self.extent_widget.extentChanged.connect(self._show_extent_source)
+        if hasattr(self.extent_widget, "extentLayerChanged"):
+            self.extent_widget.extentLayerChanged.connect(self._show_extent_source)
         self.extent_widget.setToolTip(
             "The area to download/export, like QGIS's Convert Map to Raster "
             "dialog: pick 'Calculate from Layer' (a layer's bounding box), "
             "'Map Canvas Extent' (the current view), or type the coordinates.\n"
+            "Taken from a layer, the field shows that layer's name; the "
+            "coordinates move to this tooltip.\n"
             "The extent may be in any CRS — it is reprojected to whatever the "
             "source needs.")
         form.addRow("Extent to render:", self.extent_widget)
@@ -923,6 +934,37 @@ class BasemapTileDialog(QDialog):
         v = self.values()
         return engine.has_resumable_cache(v["layer"], v["extent"], v["extent_crs"],
                                           v["opts"], v["output_path"], v["temporary"])
+
+    def _show_extent_source(self, *_):
+        """With 'Calculate from Layer', show the layer's NAME in the condensed
+        field rather than its four bounding-box numbers — the name is what the
+        user picked and recognises ("AOI Seceda …" beats "701777.0000,717278…").
+
+        The widget writes the coordinates itself on every change, so this runs
+        after it (connected later) and overwrites the text. Only the display is
+        touched: outputExtent() is held separately and is unaffected, so the
+        download still uses the real rectangle. The coordinates go to the
+        tooltip so nothing is lost. Any other extent source (map canvas, typed
+        coordinates) is left showing numbers, as before."""
+        le = getattr(self, "_condensed_edit", None)
+        if le is None:
+            return
+        try:
+            from_layer = (self.extent_widget.extentState() ==
+                          QgsExtentWidget.ExtentState.ProjectLayerExtent)
+            name = (self.extent_widget.extentLayerName() or "") if from_layer else ""
+            if not name:
+                le.setToolTip("")
+                return
+            ext = self.extent_widget.outputExtent()
+            crs = self.extent_widget.outputCrs()
+            le.setText(name)
+            le.setToolTip("Extent of layer “{}”:\n{:.4f}, {:.4f}, {:.4f}, {:.4f} [{}]"
+                          .format(name, ext.xMinimum(), ext.xMaximum(),
+                                  ext.yMinimum(), ext.yMaximum(),
+                                  crs.authid() or "unknown CRS"))
+        except Exception:  # nosec B110  — cosmetic only; never block the dialog
+            pass
 
     def _multi_feature_extent_warning(self):
         """When the extent was taken from a layer (Calculate from Layer), the

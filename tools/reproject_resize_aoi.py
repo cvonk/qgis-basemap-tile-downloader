@@ -27,7 +27,11 @@ from qgis.core import (
     QgsFeature, QgsFields, QgsField, QgsGeometry, QgsRectangle, QgsPointXY,
     QgsWkbTypes,
 )
-from qgis.PyQt.QtCore import QVariant
+# QgsField(name, QVariant.Type) is deprecated from QGIS 3.38 on — it warns on
+# every run. QMetaType is the replacement and is present in both the Qt5 (3.40
+# LTR) and Qt6 (4.x) builds, so no compatibility shim is needed at the 3.40
+# floor this repo targets.
+from qgis.PyQt.QtCore import QMetaType
 
 
 class ReprojectResizeAoi(QgsProcessingAlgorithm):
@@ -130,8 +134,8 @@ class ReprojectResizeAoi(QgsProcessingAlgorithm):
                             centre.x() + hw, centre.y() + hh)
 
         fields = QgsFields()
-        fields.append(QgsField("width_m", QVariant.Double))
-        fields.append(QgsField("height_m", QVariant.Double))
+        fields.append(QgsField("width_m", QMetaType.Type.Double))
+        fields.append(QgsField("height_m", QMetaType.Type.Double))
         sink, dest_id = self.parameterAsSink(
             parameters, self.OUTPUT, context, fields,
             QgsWkbTypes.Polygon, out_crs)
