@@ -2,20 +2,24 @@
 """
 De-haze & block-match an orthophoto — a QGIS Processing algorithm.
 
-Fixes the two things that make one national-ortho AOI look nothing like the next
-even though both came from the same service:
+Makes one orthophoto AOI look like another — whether they came from the same
+service or not. It fixes:
 
-  * a **uniform haze cast** — the whole tile was flown through haze, so blue sits
-    well above red everywhere and the image reads grey-teal instead of green;
+  * a **uniform colour cast** — the whole tile leans one way. PCN 2012 flown
+    through haze runs COLD (blue well above red, reads grey-teal); Copernicus
+    VHR 2021 runs WARM (blue ~19 DN below red). Both are the same defect;
   * an **acquisition-block seam** — the AOI straddles two flight blocks with
-    different radiometry, so half the tile is hazier than the other half and a
-    visible step runs across it.
+    different radiometry, so a visible step runs across it.
 
 Both are cured by mapping percentiles per channel. Give a reference raster (an
 AOI you already like the look of) and the input is matched to it band by band on
 p2/p50/p98; the mid-tone anchor matters, an endpoint-only stretch overshoots and
 leaves a residual cast. If the AOI is split, set Block threshold and the hazier
 block is first matched onto the cleaner one across a feathered boundary.
+
+What it CANNOT fix: brightness-only seams with no colour signature (the
+rectangular scene boundaries in a Copernicus mosaic), and anything in the pixels
+rather than the tone curve — residual snow, haze softening, resolution.
 
 This is the single-raster counterpart to "Harmonise & merge orthophotos", which
 colour-matches several *separate* overlapping rasters. Use this one when the
@@ -98,8 +102,12 @@ class DehazeOrtho(QgsProcessingAlgorithm):
             "the hazier block is matched onto the cleaner one across a feathered "
             "boundary. If p5 is already well above 0 the whole tile is hazy; "
             "leave it at 0.\n\n"
-            "<b>Saturation</b> — 1.0 leaves colour alone; de-hazed alpine imagery "
-            "usually wants 1.3–1.6.\n\n"
+            "<b>Saturation</b> — 1.0 leaves colour alone, and is usually right: "
+            "a cast IS chroma, so the per-channel match already restores most of "
+            "it. Check the log's before/after against the reference before "
+            "reaching for this. A hazy, flat source (PCN 2012) can want 1.3–1.6; "
+            "a source with a strong cast (Copernicus VHR runs warm) needs 1.0, "
+            "and boosting it there overshoots badly.\n\n"
             "For colour-matching several separate overlapping rasters instead, use "
             "\"Harmonise & merge orthophotos\"."
         )
