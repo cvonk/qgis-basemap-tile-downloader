@@ -37,6 +37,57 @@ QGIS_INTERNAL_URI_KEYS = frozenset({
 })
 
 
+# WMS CRS spellings QGIS cannot construct. "CRS:84" is WGS 84 in LONGITUDE,
+# LATITUDE order — that is precisely why OGC defined it, as the lon/lat
+# counterpart to EPSG:4326, which WMS 1.3.0 orders lat/lon. QGIS knows it only as
+# "OGC:CRS84", so QgsCoordinateReferenceSystem("CRS:84") is invalid and the whole
+# job used to die on a server that advertises CRS:84 first (Copernicus VHR does).
+CRS_ALIASES = {"CRS:84": "OGC:CRS84"}
+FORCE_XY    = frozenset({"CRS:84", "OGC:CRS84"})
+# Only consulted when QGIS cannot answer (stubbed CRS class in the logic tests,
+# or a CRS missing from its database); the real decision is hasAxisInverted().
+FALLBACK_YX = frozenset({"EPSG:4326", "EPSG:4258"})
+
+
+def _crs_ok(crs):
+    try:
+        return bool(crs.isValid())
+    except (AttributeError, TypeError):     # stubbed QGIS in the logic tests
+        return False
+
+
+def _qgis_crs(crs_str):
+    """A QGIS CRS for a WMS CRS string, translating spellings QGIS rejects."""
+    key = (crs_str or "").upper()
+    crs = QgsCoordinateReferenceSystem(CRS_ALIASES.get(key, crs_str))
+    if key in CRS_ALIASES and not _crs_ok(crs):
+        crs = QgsCoordinateReferenceSystem("EPSG:4326")   # pre-3.20: no OGC:CRS84
+    return crs
+
+
+def _authid(crs_str):
+    """The CRS as QGIS/GDAL should see it — they reject the bare WMS spelling."""
+    crs = _qgis_crs(crs_str)
+    return crs.authid() if _crs_ok(crs) else crs_str
+
+
+def _axis_inverted(crs_str):
+    """Does WMS 1.3.0 want this CRS's BBOX as y,x? Ask QGIS instead of keeping a
+    hand-maintained list — it is not only the geographic CRSs. EPSG:3035 (LAEA
+    Europe) is northing/easting as well, and sending it x,y returns a blank tile
+    rather than an error, so a stale list fails silently."""
+    key = (crs_str or "").upper()
+    if key in FORCE_XY:
+        return False
+    crs = _qgis_crs(crs_str)
+    if _crs_ok(crs):
+        try:
+            return bool(crs.hasAxisInverted())
+        except (AttributeError, TypeError):
+            pass
+    return key in FALLBACK_YX
+
+
 # ─────────────────────────────────────────────
 # DETECTION / PARAMS
 # ─────────────────────────────────────────────
@@ -96,10 +147,10 @@ def extract_params(layer):
 
 
 def native_crs(params, opts):
-    return params["crs"]
+    return _authid(params["crs"])
 
 def default_out_crs(params):
-    return params["crs"]
+    return _authid(params["crs"])
 
 def fingerprint_parts(params, opts):
     return [params["url"], ",".join(sorted(params["layers"])), params["crs"],
@@ -228,7 +279,7 @@ def build_tile_grid(extent_geom, extent_crs, params, opts, logger):
     tile_pixels = int(opts.get("tile_pixels", 1024))
     resolution  = float(opts.get("resolution", 0.5))
 
-    req_crs = QgsCoordinateReferenceSystem(params["crs"])
+    req_crs = _qgis_crs(params["crs"])
     if not req_crs.isValid():
         raise DownloaderError(f"Request CRS '{params['crs']}' is invalid.")
 
@@ -278,9 +329,6 @@ def build_tile_grid(extent_geom, extent_crs, params, opts, logger):
 # ─────────────────────────────────────────────
 # GETMAP URL + FETCH
 # ─────────────────────────────────────────────
-YX_CRS = {"EPSG:4326", "CRS:84", "EPSG:4258"}
-
-
 def _getmap_url(params, opts, tile, attempt=0):
     tile_pixels = int(opts.get("tile_pixels", 1024))
     p  = list(urllib.parse.urlparse(params["url"]))
@@ -298,8 +346,8 @@ def _getmap_url(params, opts, tile, attempt=0):
     s("transparent", q.get(lk.get("transparent", "TRANSPARENT"), "TRUE"))
     s("width", str(tile_pixels)); s("height", str(tile_pixels))
 
-    crs = params["crs"]
-    use_yx = version.startswith("1.3") and crs.upper() in YX_CRS
+    crs = params["crs"]                     # the spelling the server advertised
+    use_yx = version.startswith("1.3") and _axis_inverted(crs)
     if version.startswith("1.3"):
         s("crs", crs)
     else:

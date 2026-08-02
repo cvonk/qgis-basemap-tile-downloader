@@ -4,7 +4,7 @@ qgisMinimumVersion=3.40.8
 qgisMaximumVersion=4.99
 description=Download a WMS, WMTS, WCS, XYZ, or ArcGIS REST basemap over an extent and mosaic it into a GeoTIFF.
 about=Auto-detects whether the chosen layer is a WMS, WMTS, WCS, XYZ, or ArcGIS REST MapServer source. Tiles the request over a chosen extent (WMS GetMap / WCS GetCoverage at a chosen resolution/CRS, or WMTS / Web-Mercator {z}/{x}/{y} at a chosen zoom), downloads with adaptive throttling and a resumable SQLite work queue, georeferences each tile, and builds a compressed, tiled GeoTIFF mosaic (with overviews) using GDAL. WCS coverages (e.g. elevation) are fetched losslessly and keep their native samples and nodata. Optionally reprojects to a chosen output CRS and crops to the exact extent. Requires the GDAL Python bindings. For personal and educational use only — respect each provider's Terms of Service and usage limits.
-version=1.13.2
+version=1.13.3
 author=Coert Vonk
 email=ing.c.j.s.vonk@gmail.com
 license=GPL-3.0-or-later
@@ -16,7 +16,14 @@ experimental=False
 deprecated=False
 category=Raster
 tags=wms,wmts,wcs,xyz,tiles,download,raster,mosaic,gdal,basemap,orthophoto,dtm,dem,elevation,aoi,web mercator
-changelog=1.13.2 - Fix: a temporal WMS layer (one QGIS tags with a
+changelog=1.13.3 - Fix: a WMS whose capabilities advertise CRS:84 first (e.g.
+    Copernicus VHR 2021) aborted with "Request CRS 'CRS:84' is invalid" before
+    requesting a tile — QGIS knows that CRS only as OGC:CRS84. The WMS 1.3.0 BBOX
+    axis order now comes from QGIS instead of a hardcoded list: CRS:84 is the
+    lon/lat CRS and must not be swapped, while northing-first projected CRSs such
+    as EPSG:3035 (LAEA Europe) must be — sending those x,y returned a blank tile
+    rather than an error, so the old list failed silently.
+    1.13.2 - Fix: a temporal WMS layer (one QGIS tags with a
     timeDimensionExtent, e.g. BEV's orthophoto) appended its whole list of
     available dates to every GetMap request — bloating the request URL, the log
     and the cache signature (a long URL can even exceed a server's length limit).
