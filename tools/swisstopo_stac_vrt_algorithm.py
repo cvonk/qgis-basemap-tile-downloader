@@ -21,10 +21,11 @@ import urllib.request
 from qgis.core import (
     QgsProcessingAlgorithm, QgsProcessingException,
     QgsProcessingContext,
-    QgsProcessingParameterExtent, QgsProcessingParameterEnum,
+    QgsProcessingParameterVectorLayer, QgsProcessingParameterEnum,
     QgsProcessingParameterNumber, QgsProcessingParameterBoolean,
     QgsProcessingParameterString, QgsProcessingParameterFileDestination,
     QgsProcessingParameterDefinition, QgsCoordinateReferenceSystem,
+    QgsCoordinateTransform, QgsProject, QgsVectorLayer,
 )
 
 try:
@@ -43,6 +44,31 @@ PRESETS = [
     ("SWISSIMAGE — orthophoto, 0.1 m", "ch.swisstopo.swissimage-dop10", "0.1", 0.1, None),
     ("SWISSIMAGE — orthophoto, 2 m", "ch.swisstopo.swissimage-dop10", "2", 2.0, None),
 ]
+
+
+def _active_layer_id():
+    """The active vector layer's id, to pre-fill the AOI. iface is absent
+    headless (Processing model / batch), where there is no default."""
+    try:
+        from qgis.utils import iface
+        active = iface.activeLayer() if iface is not None else None
+        return active.id() if isinstance(active, QgsVectorLayer) else None
+    except Exception:      # pragma: no cover  (no GUI / iface)
+        return None
+
+
+def _aoi_rect(alg, parameters, context, target_crs):
+    """The AOI layer's extent in target_crs — the replacement for
+    parameterAsExtent now that the AOI is a layer picker."""
+    layer = alg.parameterAsVectorLayer(parameters, alg.AOI, context)
+    if layer is None:
+        raise QgsProcessingException("Choose a vector layer for the area of interest.")
+    rect = layer.extent()
+    src = layer.crs()
+    if src.isValid() and target_crs.isValid() and src != target_crs:
+        rect = QgsCoordinateTransform(
+            src, target_crs, QgsProject.instance()).transformBoundingBox(rect)
+    return rect
 
 
 class SwisstopoStacVrtAlgorithm(QgsProcessingAlgorithm):
@@ -77,8 +103,8 @@ class SwisstopoStacVrtAlgorithm(QgsProcessingAlgorithm):
             "covering the chosen extent — without downloading them. The VRT points "
             "at the remote tiles via /vsicurl/, so it loads instantly and streams "
             "only what you view or export.\n\n"
-            "Pick a preset (swissALTI3D DTM, or SWISSIMAGE orthophoto), draw or "
-            "choose the extent, and run. Load the resulting VRT, then export your "
+            "Pick a preset (swissALTI3D DTM, or SWISSIMAGE orthophoto), choose "
+            "the AOI layer, and run. Load the resulting VRT, then export your "
             "exact AOI with the Basemap Tile Downloader's GeoTIFF backend.\n\n"
             "Where a tile was flown in several years, the newest is kept per cell "
             "unless you set a specific Year or tick 'Keep all years'. The Advanced "
@@ -88,8 +114,9 @@ class SwisstopoStacVrtAlgorithm(QgsProcessingAlgorithm):
 
     # ── parameters ────────────────────────────────────────────────────────────
     def initAlgorithm(self, config=None):
-        self.addParameter(QgsProcessingParameterExtent(
-            self.AOI, "Area of interest (any CRS — reprojected for the query)"))
+        self.addParameter(QgsProcessingParameterVectorLayer(
+            self.AOI, "Area of interest (vector layer, any CRS)",
+            defaultValue=_active_layer_id()))
 
         self.addParameter(QgsProcessingParameterEnum(
             self.PRESET, "Product", options=[p[0] for p in PRESETS],
@@ -160,8 +187,7 @@ class SwisstopoStacVrtAlgorithm(QgsProcessingAlgorithm):
 
         # The extent, reprojected to WGS84 lon/lat for the STAC bbox query. QGIS
         # does the reprojection, so the AOI can be given in any CRS.
-        rect = self.parameterAsExtent(
-            parameters, self.AOI, context, QgsCoordinateReferenceSystem("EPSG:4326"))
+        rect = _aoi_rect(self, parameters, context, QgsCoordinateReferenceSystem("EPSG:4326"))
         if rect.isEmpty():
             raise QgsProcessingException("The area of interest is empty.")
         bbox_ll = (rect.xMinimum(), rect.yMinimum(),

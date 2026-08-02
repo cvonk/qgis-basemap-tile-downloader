@@ -42,6 +42,7 @@ except ImportError:      # pragma: no cover
 _STATS_MAXDIM = 2200     # read each layer at ≤ this for the seam statistics
 _SEAM_PX = 6             # strip width (reduced-res px) either side of a seam
 _MIN_SEAM = 400          # too few seam pixels → the layers don't really touch
+METERS_PER_DEGREE = 111319.49079327358
 
 
 class HarmoniseOrthophotos(QgsProcessingAlgorithm):
@@ -191,8 +192,18 @@ class HarmoniseOrthophotos(QgsProcessingAlgorithm):
         dss = [gdal.Open(p) for p in paths]
         if any(d is None for d in dss):
             raise QgsProcessingException("An input raster could not be opened.")
+        # _native_res measures the footprint in out_srs, so the auto value is
+        # already in the output CRS's units. A resolution the user typed is
+        # metres, and gdal.Warp reads xRes/yRes in output-CRS units — so for a
+        # geographic CRS it must be converted, or 1 m is taken as 1 DEGREE and
+        # the warp collapses to a couple of pixels.
         if res <= 0:
             res = min(self._native_res(d, out_srs) for d in dss)
+        elif out_crs.isGeographic():
+            deg = res / METERS_PER_DEGREE
+            feedback.pushInfo(f"Output CRS {out_crs.authid()} is geographic: "
+                              f"{res:g} m → {deg:.8f}° per pixel.")
+            res = deg
         clip = self.parameterAsExtent(parameters, self.CLIP, context, out_crs)
         if clip.isEmpty():
             exts = [self._extent_in(d, out_srs) for d in dss]
@@ -200,7 +211,8 @@ class HarmoniseOrthophotos(QgsProcessingAlgorithm):
                   max(e[2] for e in exts), max(e[3] for e in exts))
         else:
             te = (clip.xMinimum(), clip.yMinimum(), clip.xMaximum(), clip.yMaximum())
-        feedback.pushInfo(f"Output grid: {out_crs.authid()} @ {res:g} m, "
+        unit = "°" if out_crs.isGeographic() else "m"
+        feedback.pushInfo(f"Output grid: {out_crs.authid()} @ {res:g} {unit}, "
                           f"extent {te[0]:.0f},{te[1]:.0f},{te[2]:.0f},{te[3]:.0f}")
 
         # 1) Warp every input onto that identical grid as RGBA (aligned so the
@@ -265,8 +277,13 @@ class HarmoniseOrthophotos(QgsProcessingAlgorithm):
                              "BLOCKXSIZE=256", "BLOCKYSIZE=256", "BIGTIFF=IF_SAFER"]))
         if ds is None:
             raise QgsProcessingException("The composite warp produced no output.")
-        ds.BuildOverviews("AVERAGE", [2, 4, 8, 16])
         xs, ys = ds.RasterXSize, ds.RasterYSize
+        if xs < 2 or ys < 2:
+            ds = None
+            raise QgsProcessingException(
+                f"The composite is a degenerate {xs} × {ys} px raster — the "
+                f"resolution is too coarse for the extent in {out_crs.authid()}.")
+        ds.BuildOverviews("AVERAGE", [2, 4, 8, 16])
         ds = None
         feedback.setProgress(100)
         feedback.pushInfo(f"✓ {xs} × {ys} px, {out_crs.authid()} @ {res:g} m")

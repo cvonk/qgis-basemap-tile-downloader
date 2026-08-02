@@ -24,9 +24,10 @@ import urllib.request
 
 from qgis.core import (
     QgsProcessingAlgorithm, QgsProcessingException,
-    QgsProcessingParameterExtent, QgsProcessingParameterEnum,
+    QgsProcessingParameterVectorLayer, QgsProcessingParameterEnum,
     QgsProcessingParameterNumber, QgsProcessingParameterCrs,
     QgsProcessingParameterRasterDestination, QgsCoordinateReferenceSystem,
+    QgsCoordinateTransform, QgsProject, QgsVectorLayer,
 )
 
 try:
@@ -38,8 +39,34 @@ except ImportError:      # pragma: no cover
 TILE_INDEX = ("https://services3.arcgis.com/hG7UfxX49PQ8XkXh/arcgis/rest/"
               "services/als_tif_3857/FeatureServer/0")
 NODATA = -9999.0
+METERS_PER_DEGREE = 111319.49079327358
 MODELS = [("DGM — terrain (bare earth)", "dgm"),
           ("DOM — surface (incl. buildings/trees)", "dom")]
+
+
+def _active_layer_id():
+    """The active vector layer's id, to pre-fill the AOI. iface is absent
+    headless (Processing model / batch), where there is no default."""
+    try:
+        from qgis.utils import iface
+        active = iface.activeLayer() if iface is not None else None
+        return active.id() if isinstance(active, QgsVectorLayer) else None
+    except Exception:      # pragma: no cover  (no GUI / iface)
+        return None
+
+
+def _aoi_rect(alg, parameters, context, target_crs):
+    """The AOI layer's extent in target_crs — the replacement for
+    parameterAsExtent now that the AOI is a layer picker."""
+    layer = alg.parameterAsVectorLayer(parameters, alg.AOI, context)
+    if layer is None:
+        raise QgsProcessingException("Choose a vector layer for the area of interest.")
+    rect = layer.extent()
+    src = layer.crs()
+    if src.isValid() and target_crs.isValid() and src != target_crs:
+        rect = QgsCoordinateTransform(
+            src, target_crs, QgsProject.instance()).transformBoundingBox(rect)
+    return rect
 
 
 class TyrolDgmAoi(QgsProcessingAlgorithm):
@@ -56,7 +83,7 @@ class TyrolDgmAoi(QgsProcessingAlgorithm):
         return "tyrol_dgm_aoi"
 
     def displayName(self):
-        return "Tyrol ALS DGM/DOM → DTM GeoTIFF (AOI)"
+        return "Tyrol ALS DGM/DOM → DTM GeoTIFF (AOI) (0.5m 31254/31255)"
 
     def group(self):
         return "Austria"
@@ -76,15 +103,19 @@ class TyrolDgmAoi(QgsProcessingAlgorithm):
         )
 
     def initAlgorithm(self, config=None):
-        self.addParameter(QgsProcessingParameterExtent(
-            self.AOI, "Area of interest (any CRS)"))
+        self.addParameter(QgsProcessingParameterVectorLayer(
+            self.AOI, "Area of interest (vector layer, any CRS)",
+            defaultValue=_active_layer_id()))
         self.addParameter(QgsProcessingParameterEnum(
             self.MODEL, "Model", options=[m[0] for m in MODELS], defaultValue=0))
         self.addParameter(QgsProcessingParameterNumber(
             self.RES, "Output resolution (m)", type=QgsProcessingParameterNumber.Double,
-            defaultValue=1.0, minValue=0.5, maxValue=50.0))
+            defaultValue=0.5, minValue=0.5, maxValue=50.0))
         self.addParameter(QgsProcessingParameterCrs(
-            self.CRS, "Output CRS", defaultValue="EPSG:32632"))
+            # Default to the tiles' own grid — reprojecting resamples. Tyrol
+            # spans two GK zones; West (31254) covers most of it, and an AOI in
+            # Central is still reprojected/mosaicked correctly from here.
+            self.CRS, "Output CRS", defaultValue="EPSG:31254"))
         self.addParameter(QgsProcessingParameterRasterDestination(
             self.OUTPUT, "Output DTM"))
 
@@ -154,8 +185,7 @@ class TyrolDgmAoi(QgsProcessingAlgorithm):
         out_crs = self.parameterAsCrs(parameters, self.CRS, context)
         out_path = self.parameterAsOutputLayer(parameters, self.OUTPUT, context)
 
-        rect3857 = self.parameterAsExtent(
-            parameters, self.AOI, context, QgsCoordinateReferenceSystem("EPSG:3857"))
+        rect3857 = _aoi_rect(self, parameters, context, QgsCoordinateReferenceSystem("EPSG:3857"))
         if rect3857.isEmpty():
             raise QgsProcessingException("The area of interest is empty.")
         bbox = (rect3857.xMinimum(), rect3857.yMinimum(),
@@ -195,19 +225,25 @@ class TyrolDgmAoi(QgsProcessingAlgorithm):
                     f"Found tiles but no {prefix.upper()} raster inside their ZIPs.")
             feedback.pushInfo(f"Downloaded {len(sources)} tile(s); warping → {out_path}")
 
-            rect = self.parameterAsExtent(parameters, self.AOI, context, out_crs)
+            rect = _aoi_rect(self, parameters, context, out_crs)
             cut = self._cutline(rect, out_crs)
+            warp_res = self._warp_res(res, out_crs, feedback)
             ds = gdal.Warp(out_path, sources, options=gdal.WarpOptions(
                 format="GTiff", dstSRS=out_crs.authid(),
-                xRes=res, yRes=res, targetAlignedPixels=True,
+                xRes=warp_res, yRes=warp_res, targetAlignedPixels=True,
                 cutlineDSName=cut, cropToCutline=True,
                 resampleAlg="bilinear", srcNodata=NODATA, dstNodata=NODATA,
                 creationOptions=["COMPRESS=DEFLATE", "PREDICTOR=3", "TILED=YES",
                                  "BIGTIFF=IF_SAFER"]))
             if ds is None:
                 raise QgsProcessingException("gdal.Warp produced no output.")
-            ds.BuildOverviews("AVERAGE", [2, 4, 8, 16])
             xs, ys = ds.RasterXSize, ds.RasterYSize
+            if xs < 2 or ys < 2:
+                ds = None
+                raise QgsProcessingException(
+                    f"The warp produced a degenerate {xs} × {ys} px raster — the "
+                    f"resolution is too coarse for the extent in {out_crs.authid()}.")
+            ds.BuildOverviews("AVERAGE", [2, 4, 8, 16])
             ds = None
         finally:
             shutil.rmtree(tmp, ignore_errors=True)
@@ -215,6 +251,22 @@ class TyrolDgmAoi(QgsProcessingAlgorithm):
         feedback.pushInfo(f"✓ {xs} × {ys} px at {res} m, {out_crs.authid()}, "
                           f"nodata {NODATA:g}")
         return {self.OUTPUT: out_path}
+
+    @staticmethod
+    def _warp_res(res_m, out_crs, feedback):
+        """The Resolution parameter is metres, but gdal.Warp reads xRes/yRes in
+        the OUTPUT CRS's units. Pick a geographic CRS (EPSG:4326) and a 1 m
+        request silently becomes 1 DEGREE per pixel — a 31 km AOI warps to a
+        1 x 1 px raster reported as a success. Convert, using a single equatorial
+        factor so pixels stay square in degrees (as the plugin's
+        engine.grid_step_units does)."""
+        if not out_crs.isGeographic():
+            return res_m
+        deg = res_m / METERS_PER_DEGREE
+        feedback.pushInfo(
+            f"Output CRS {out_crs.authid()} is geographic: {res_m:g} m -> "
+            f"{deg:.8f} deg per pixel.")
+        return deg
 
     @staticmethod
     def _cutline(rect, crs):

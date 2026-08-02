@@ -21,9 +21,10 @@ Drop this file in your profile's processing/scripts/ folder (or Toolbox ▸ Scri
 """
 from qgis.core import (
     QgsProcessingAlgorithm, QgsProcessingException, QgsProcessingContext,
-    QgsProcessingParameterExtent, QgsProcessingParameterString,
+    QgsProcessingParameterVectorLayer, QgsProcessingParameterString,
     QgsProcessingParameterFileDestination, QgsProcessingParameterDefinition,
     QgsCoordinateReferenceSystem,
+    QgsCoordinateTransform, QgsProject, QgsVectorLayer,
 )
 
 try:
@@ -40,6 +41,31 @@ NODATA = -9999.0
 MAX_TILES = 4000                  # ~4000 km²; a 1 m DGM beyond that is unwieldy
 
 
+def _active_layer_id():
+    """The active vector layer's id, to pre-fill the AOI. iface is absent
+    headless (Processing model / batch), where there is no default."""
+    try:
+        from qgis.utils import iface
+        active = iface.activeLayer() if iface is not None else None
+        return active.id() if isinstance(active, QgsVectorLayer) else None
+    except Exception:      # pragma: no cover  (no GUI / iface)
+        return None
+
+
+def _aoi_rect(alg, parameters, context, target_crs):
+    """The AOI layer's extent in target_crs — the replacement for
+    parameterAsExtent now that the AOI is a layer picker."""
+    layer = alg.parameterAsVectorLayer(parameters, alg.AOI, context)
+    if layer is None:
+        raise QgsProcessingException("Choose a vector layer for the area of interest.")
+    rect = layer.extent()
+    src = layer.crs()
+    if src.isValid() and target_crs.isValid() and src != target_crs:
+        rect = QgsCoordinateTransform(
+            src, target_crs, QgsProject.instance()).transformBoundingBox(rect)
+    return rect
+
+
 class BavariaDgm1AoiVrt(QgsProcessingAlgorithm):
     AOI = "AOI"
     BASE = "BASE"
@@ -52,7 +78,7 @@ class BavariaDgm1AoiVrt(QgsProcessingAlgorithm):
         return "bavaria_dgm1_aoi_vrt"
 
     def displayName(self):
-        return "Bavaria DGM1 AOI → VRT"
+        return "Bavaria DGM1 AOI → VRT (1m 25832)"
 
     def group(self):
         return "Germany (Bayern)"
@@ -66,7 +92,7 @@ class BavariaDgm1AoiVrt(QgsProcessingAlgorithm):
             "model) tiles covering the chosen extent — without downloading them. "
             "The VRT points at the remote tiles via /vsicurl/, so it loads "
             "instantly and streams only what you view or export.\n\n"
-            "Draw or choose the extent (any CRS) and run. Load the resulting VRT, "
+            "Pick the AOI layer (any CRS) and run. Load the resulting VRT, "
             "then export your exact AOI with the Basemap Tile Downloader's GeoTIFF "
             "backend.\n\n"
             "Tiles are 1 km, Float32, nodata -9999, EPSG:25832. Data © Bayerische "
@@ -74,8 +100,9 @@ class BavariaDgm1AoiVrt(QgsProcessingAlgorithm):
         )
 
     def initAlgorithm(self, config=None):
-        self.addParameter(QgsProcessingParameterExtent(
-            self.AOI, "Area of interest (any CRS — reprojected to EPSG:25832)"))
+        self.addParameter(QgsProcessingParameterVectorLayer(
+            self.AOI, "Area of interest (vector layer, any CRS)",
+            defaultValue=_active_layer_id()))
         self.addParameter(QgsProcessingParameterFileDestination(
             self.OUTPUT, "Output VRT", fileFilter="VRT (*.vrt)"))
         # Advanced: point at a mirror, or another bayernwolke product with the same
@@ -91,9 +118,7 @@ class BavariaDgm1AoiVrt(QgsProcessingAlgorithm):
         base = (self.parameterAsString(parameters, self.BASE, context)
                 or TILE_BASE).rstrip("/")
 
-        rect = self.parameterAsExtent(
-            parameters, self.AOI, context,
-            QgsCoordinateReferenceSystem(TILE_CRS))
+        rect = _aoi_rect(self, parameters, context, QgsCoordinateReferenceSystem(TILE_CRS))
         if rect.isEmpty():
             raise QgsProcessingException("The area of interest is empty.")
 

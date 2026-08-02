@@ -22,9 +22,10 @@ import math
 
 from qgis.core import (
     QgsProcessingAlgorithm, QgsProcessingException,
-    QgsProcessingParameterExtent, QgsProcessingParameterEnum,
+    QgsProcessingParameterVectorLayer, QgsProcessingParameterEnum,
     QgsProcessingParameterNumber, QgsProcessingParameterCrs,
     QgsProcessingParameterRasterDestination, QgsCoordinateReferenceSystem,
+    QgsCoordinateTransform, QgsProject, QgsVectorLayer,
 )
 
 try:
@@ -38,8 +39,34 @@ GRID_CRS = "EPSG:3035"             # the tiles' native ETRS89-LAEA grid
 TILE = 50000                       # tile side, metres
 NODATA = -9999.0
 MAX_TILES = 40                     # a 16.5 km AOI touches ≤ 4; guard a runaway AOI
+METERS_PER_DEGREE = 111319.49079327358
 MODELS = [("DGM — terrain (bare earth)", "DTM"),
           ("DOM — surface (incl. buildings/trees)", "DSM")]
+
+
+def _active_layer_id():
+    """The active vector layer's id, to pre-fill the AOI. iface is absent
+    headless (Processing model / batch), where there is no default."""
+    try:
+        from qgis.utils import iface
+        active = iface.activeLayer() if iface is not None else None
+        return active.id() if isinstance(active, QgsVectorLayer) else None
+    except Exception:      # pragma: no cover  (no GUI / iface)
+        return None
+
+
+def _aoi_rect(alg, parameters, context, target_crs):
+    """The AOI layer's extent in target_crs — the replacement for
+    parameterAsExtent now that the AOI is a layer picker."""
+    layer = alg.parameterAsVectorLayer(parameters, alg.AOI, context)
+    if layer is None:
+        raise QgsProcessingException("Choose a vector layer for the area of interest.")
+    rect = layer.extent()
+    src = layer.crs()
+    if src.isValid() and target_crs.isValid() and src != target_crs:
+        rect = QgsCoordinateTransform(
+            src, target_crs, QgsProject.instance()).transformBoundingBox(rect)
+    return rect
 
 
 class AustriaBevDgmAoi(QgsProcessingAlgorithm):
@@ -56,7 +83,10 @@ class AustriaBevDgmAoi(QgsProcessingAlgorithm):
         return "austria_bev_dgm_aoi"
 
     def displayName(self):
-        return "Austria BEV ALS DGM/DOM → DTM GeoTIFF (AOI)"
+        # The trailing (native resolution, native CRS) is what you are actually
+        # sampling — the Output CRS / Resolution parameters only say what it is
+        # resampled to, so the source grid belongs in the name.
+        return "Austria BEV ALS DGM/DOM → DTM GeoTIFF (AOI) (1m 3035)"
 
     def group(self):
         return "Austria"
@@ -77,8 +107,12 @@ class AustriaBevDgmAoi(QgsProcessingAlgorithm):
         )
 
     def initAlgorithm(self, config=None):
-        self.addParameter(QgsProcessingParameterExtent(
-            self.AOI, "Area of interest (any CRS)"))
+        self.addParameter(QgsProcessingParameterVectorLayer(
+            # A layer picker rather than an extent box, so the Toolbox shows the
+            # AOI layer's NAME instead of four coordinates (as the plugin dialog
+            # does). Defaults to the active layer when there is a GUI.
+            self.AOI, "Area of interest (vector layer, any CRS)",
+            defaultValue=_active_layer_id()))
         self.addParameter(QgsProcessingParameterEnum(
             self.MODEL, "Model", options=[m[0] for m in MODELS], defaultValue=0))
         self.addParameter(QgsProcessingParameterNumber(
@@ -86,7 +120,9 @@ class AustriaBevDgmAoi(QgsProcessingAlgorithm):
             type=QgsProcessingParameterNumber.Double,
             defaultValue=1.0, minValue=1.0, maxValue=50.0))
         self.addParameter(QgsProcessingParameterCrs(
-            self.CRS, "Output CRS", defaultValue="EPSG:32632"))
+            # Default to the tiles' own grid: reprojecting resamples, and this
+            # is usually an intermediate that gets merged or exported later.
+            self.CRS, "Output CRS", defaultValue=GRID_CRS))
         self.addParameter(QgsProcessingParameterRasterDestination(
             self.OUTPUT, "Output DTM"))
 
@@ -126,8 +162,8 @@ class AustriaBevDgmAoi(QgsProcessingAlgorithm):
         out_crs = self.parameterAsCrs(parameters, self.CRS, context)
         out_path = self.parameterAsOutputLayer(parameters, self.OUTPUT, context)
 
-        rect = self.parameterAsExtent(
-            parameters, self.AOI, context, QgsCoordinateReferenceSystem(GRID_CRS))
+        rect = _aoi_rect(self, parameters, context,
+                         QgsCoordinateReferenceSystem(GRID_CRS))
         if rect.isEmpty():
             raise QgsProcessingException("The area of interest is empty.")
 
@@ -172,7 +208,7 @@ class AustriaBevDgmAoi(QgsProcessingAlgorithm):
         feedback.pushInfo(f"{len(sources)} tile(s) cover the AOI; warping the "
                           f"window → {out_path}")
 
-        rect_out = self.parameterAsExtent(parameters, self.AOI, context, out_crs)
+        rect_out = _aoi_rect(self, parameters, context, out_crs)
         cut = self._cutline(rect_out, out_crs)
 
         # The warp reads only the AOI window from the COGs and is the slow step;
@@ -184,22 +220,44 @@ class AustriaBevDgmAoi(QgsProcessingAlgorithm):
         # srcSRS pinned — the COGs embed the grid as a LOCAL_CS wrapper that GDAL
         # won't reproject from; stating EPSG:3035 fixes that (and silences a
         # "source has no SRS" cutline warning).
+        warp_res = self._warp_res(res, out_crs, feedback)
         ds = gdal.Warp(out_path, sources, options=gdal.WarpOptions(
             format="GTiff", srcSRS=GRID_CRS, dstSRS=out_crs.authid(),
-            xRes=res, yRes=res, targetAlignedPixels=True,
+            xRes=warp_res, yRes=warp_res, targetAlignedPixels=True,
             cutlineDSName=cut, cropToCutline=True, resampleAlg="bilinear",
             srcNodata=NODATA, dstNodata=NODATA, multithread=True, callback=_progress,
             creationOptions=["COMPRESS=DEFLATE", "PREDICTOR=3", "TILED=YES",
                              "BIGTIFF=IF_SAFER"]))
         if ds is None:
             raise QgsProcessingException("gdal.Warp produced no output.")
-        ds.BuildOverviews("AVERAGE", [2, 4, 8, 16])
         xs, ys = ds.RasterXSize, ds.RasterYSize
+        if xs < 2 or ys < 2:
+            ds = None
+            raise QgsProcessingException(
+                f"The warp produced a degenerate {xs} × {ys} px raster — the "
+                f"resolution is too coarse for the extent in {out_crs.authid()}.")
+        ds.BuildOverviews("AVERAGE", [2, 4, 8, 16])
         ds = None
         feedback.setProgress(100)
         feedback.pushInfo(f"✓ {xs} × {ys} px at {res} m, {out_crs.authid()}, "
                           f"nodata {NODATA:g}")
         return {self.OUTPUT: out_path}
+
+    @staticmethod
+    def _warp_res(res_m, out_crs, feedback):
+        """The Resolution parameter is metres, but gdal.Warp reads xRes/yRes in
+        the OUTPUT CRS's units. Pick a geographic CRS (EPSG:4326) and a 1 m
+        request silently became 1 DEGREE per pixel — a 31 km AOI warped to a
+        1 × 1 px raster that the algorithm then reported as a success. Convert,
+        using a single equatorial factor so the pixels stay square in degrees
+        (as engine.grid_step_units does in the plugin)."""
+        if not out_crs.isGeographic():
+            return res_m
+        deg = res_m / METERS_PER_DEGREE
+        feedback.pushInfo(
+            f"Output CRS {out_crs.authid()} is geographic: {res_m:g} m → "
+            f"{deg:.8f}° per pixel.")
+        return deg
 
     @staticmethod
     def _cutline(rect, crs):
