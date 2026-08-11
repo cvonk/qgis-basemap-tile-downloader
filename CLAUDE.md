@@ -37,11 +37,14 @@ Pure Python; the only heavy dependency is the GDAL bindings that ship with QGIS.
   genuine modules are used and nothing is stubbed.
 - `tools/` — standalone QGIS Processing scripts that complement the plugin (e.g.
   build a `/vsicurl` VRT over remote DTM tiles for an AOI, to then export with
-  the GeoTIFF backend). NOT part of the shipped package — the release archives
-  only `basemap_tile_downloader/`, and the plugin never imports them. `sync.ps1`
+  the GeoTIFF backend). NOT part of the plugin package — the plugin never imports
+  them — but they DO ship, as a separate release asset
+  (`basemap_tile_downloader-tools-<tag>.zip`); the plugin zip stays
+  single-folder because QGIS's "Install from ZIP" requires that. `sync.ps1`
   deploys the top-level `tools/*.py` to each profile's `processing/scripts/`;
   `tools/scripts/` holds one-off, project-specific utility scripts that are NOT
-  Toolbox algorithms and are NOT deployed (one runs at import). `ruff` and
+  Toolbox algorithms, are NOT deployed, and are kept out of the release archive
+  by `export-ignore` in `.gitattributes` (one runs at import). `ruff` and
   `detect-secrets` still scan everything under `tools/` (they run over the whole
   repo), so keep it clean; `flake8`, `bandit`, `compileall` and the tests are
   package-scoped and skip it.
@@ -138,8 +141,11 @@ the Processing scripts) in QGIS. Repo edits are invisible until synced.
 
 ## Releasing
 
-`release.yml` fires on a `v*` tag: it `git archive`s the `basemap_tile_downloader/`
-folder into `basemap_tile_downloader-<tag>.zip` and publishes a GitHub release.
+`release.yml` fires on a `v*` tag and `git archive`s **two** assets onto one
+GitHub release: `basemap_tile_downloader-<tag>.zip` (the plugin — a single
+top-level folder, because QGIS's "Install from ZIP" accepts nothing else) and
+`basemap_tile_downloader-tools-<tag>.zip` (the standalone Processing scripts,
+minus `tools/scripts/`, which `.gitattributes` marks `export-ignore`).
 So a release is:
 
 1. Bump `version=` in `metadata.txt` and add a `changelog=` entry.
@@ -147,7 +153,8 @@ So a release is:
 3. Commit, `git tag -a vX.Y.Z -m "Release X.Y.Z"`, `git push --follow-tags`.
 4. Run `sync.ps1` to install the new version locally.
 
-Tag `vX.Y.Z` must equal `metadata.txt`'s `version=`. Tests aren't shipped (the
-archive is package-only), but everything else in the package is, so keep the
-tree green at the tagged commit. `gh` is not on PATH here — invoke it by full
+Tag `vX.Y.Z` must equal `metadata.txt`'s `version=`. Tests aren't shipped, but
+everything in the package and in `tools/` is, so keep the tree green at the
+tagged commit. A `tools/`-only change still needs a version bump to reach anyone
+— the version lives in the plugin's `metadata.txt` either way. `gh` is not on PATH here — invoke it by full
 path, `U:\Program Files\GitHub CLI\gh.exe`.

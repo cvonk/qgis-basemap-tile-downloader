@@ -16,11 +16,19 @@ jobs:
       - name: Build plugin zip
         # git archive uses the committed tree, so no __pycache__/.pyc sneaks in.
         # The zip contains a top-level basemap_tile_downloader/ folder ready to
-        # drop into a QGIS plugins directory.
+        # drop into a QGIS plugins directory. It must stay SINGLE-FOLDER: QGIS's
+        # "Install from ZIP" expects exactly one top-level directory, so tools/
+        # ships as its own asset below rather than being added here.
         run: git archive --format=zip -o "basemap_tile_downloader-${{ github.ref_name }}.zip" HEAD basemap_tile_downloader
+
+      - name: Build tools zip
+        # The standalone Processing scripts. Not a plugin — these are dropped
+        # into a profile's processing/scripts/ folder. tools/scripts/ is held
+        # back by export-ignore in .gitattributes.
+        run: git archive --format=zip -o "basemap_tile_downloader-tools-${{ github.ref_name }}.zip" HEAD tools
 
       - name: Publish GitHub release
         uses: softprops/action-gh-release@v3
         with:
-          files: basemap_tile_downloader-*.zip
+          files: basemap_tile_downloader*.zip
           generate_release_notes: true

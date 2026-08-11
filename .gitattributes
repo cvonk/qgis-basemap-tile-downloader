@@ -1,0 +1,5 @@
+# tools/scripts/ holds one-off, project-specific utilities that are NOT Toolbox
+# algorithms (and one of them runs work at import time). They are deliberately
+# kept out of the released tools archive, so nobody unpacks them into a QGIS
+# processing/scripts/ folder where they would be picked up.
+tools/scripts/ export-ignore

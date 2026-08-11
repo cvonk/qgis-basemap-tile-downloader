@@ -1,8 +1,10 @@
 # tools/
 
 Standalone **QGIS Processing algorithms** that complement the plugin — they are
-*not* part of the plugin package (the release archive ships only
-`basemap_tile_downloader/`), and the plugin never imports them.
+*not* part of the plugin package and the plugin never imports them, but they do
+ship: each release carries a separate
+**`basemap_tile_downloader-tools-<tag>.zip`** alongside the plugin zip. (The
+plugin zip stays single-folder because QGIS's *Install from ZIP* requires that.)
 
 The top-level `tools/*.py` here are the Processing algorithms (deployed to a
 profile's `processing/scripts/` by `sync.ps1`). One-off **utility scripts** that
