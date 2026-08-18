@@ -9,11 +9,17 @@ provide — e.g. Styria's per-flight-period DOP layers (Flug_2022_2024_RGB /
 _2019_2021_RGB / _2016_2018_RGB), which are separate ImageServer services the
 plugin can't harmonise in one pass.
 
-Give the inputs **newest first**. The layer covering the most of the area becomes
-the colour reference (its look is kept); the others are matched to it per channel
-on the strip where they border it, and the stack is composited newest-on-top so
-newer imagery wins where present and older fills the gaps. Use it to reduce the
-banding a provider's "current" mosaic shows between flight years.
+Give the inputs **newest first**: they are composited in that order, first on
+top, so newer imagery wins where present and older fills the gaps.
+
+Separately, the layer covering the most of the area becomes the colour reference
+— its look is kept, and the others are matched to it per channel on the strip
+where they border it. Reference and stacking order are INDEPENDENT: the
+reference decides how the result looks, not which pixels survive. So a small
+sheet listed first still sits on top of the big one it was matched to.
+
+Use it to reduce the banding a provider's "current" mosaic shows between flight
+years, or to butt one country's imagery against another's across a border.
 
 Typical flow: download each period with the plugin (its ArcGIS source handles
 ImageServers), then run this on the results. Needs GDAL + numpy (ship with QGIS).
@@ -71,11 +77,14 @@ class HarmoniseOrthophotos(QgsProcessingAlgorithm):
     def shortHelpString(self):
         return (
             "Colour-match several overlapping orthophotos and composite them into "
-            "one seam-reduced GeoTIFF.\n\nAdd the layers **newest first**. The one "
-            "covering the most of the area is the colour reference (its look is "
-            "kept); the others are matched to it on the strip where they border "
-            "it, then composited newest-on-top (newer wins where present, older "
-            "fills gaps). Reduces the banding a 'current' mosaic shows between "
+            "one seam-reduced GeoTIFF.\n\nAdd the layers **newest first** — they "
+            "are stacked in that order, <b>first on top</b>.\n\nSeparately, the "
+            "one covering the most of the area is the colour reference (its look "
+            "is kept) and the others are matched to it where they border it. "
+            "Reference and stacking are <b>independent</b>: the reference decides "
+            "how the result LOOKS, not which pixels survive — so a small sheet "
+            "listed first still sits on top of the big one it matched to. "
+            "Reduces the banding a 'current' mosaic shows between "
             "flight years — e.g. Styria's Flug_2022_2024 / _2019_2021 / _2016_2018 "
             "DOP layers (download each with the plugin, then merge here).\n\n"
             "Match strength 0 keeps each layer's own brightness/contrast (match at "
@@ -240,9 +249,10 @@ class HarmoniseOrthophotos(QgsProcessingAlgorithm):
                           f"coverage); matching the others to it.")
 
         # 3) Colour-match each non-reference layer to the reference at their seam.
-        composite_inputs = []
+        adjusted = [None] * len(aligned)
         for i, a in enumerate(aligned):
             if i == ref:
+                adjusted[i] = a
                 continue
             gains, npx = self._seam_gains(reduced[ref][0], reduced[ref][1],
                                           reduced[i][0], reduced[i][1])
@@ -265,11 +275,20 @@ class HarmoniseOrthophotos(QgsProcessingAlgorithm):
                 gdal.Translate(adj, a, options=gdal.TranslateOptions(
                     format="GTiff", bandList=[1, 2, 3, 4], scaleParams=sp,
                     outputType=gdal.GDT_Byte))
-            composite_inputs.append(adj)
-        composite_inputs.append(aligned[ref])         # reference last → on top
+            adjusted[i] = adj
         feedback.setProgress(80)
 
         # 4) Composite (already aligned, so this is a straight alpha overlay).
+        #
+        # gdal.Warp lays sources down in order and the LAST one wins, so reverse
+        # the input list to put input #1 on top. Stacking follows INPUT ORDER and
+        # nothing else: which layer is the colour reference decides the LOOK, not
+        # who covers whom. Those used to be the same thing here - the reference
+        # was appended last - which silently buried input #1 whenever it was not
+        # also the reference, e.g. a small Austrian sheet over a large Italian one.
+        composite_inputs = list(reversed(adjusted))
+        feedback.pushInfo("Stacking (top first): "
+                          + " over ".join("#%d" % (i + 1) for i in range(len(aligned))))
         ds = gdal.Warp(out_path, composite_inputs, options=gdal.WarpOptions(
             format="GTiff", srcAlpha=True, dstAlpha=True, resampleAlg="near",
             multithread=True,

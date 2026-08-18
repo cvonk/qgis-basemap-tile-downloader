@@ -30,6 +30,7 @@ Needs GDAL + an internet connection. Drop in a profile's processing/scripts/
 folder; appears under Scripts ▸ Blender.
 """
 import json
+import time
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -38,15 +39,29 @@ from qgis.core import (
     QgsCoordinateReferenceSystem, QgsCoordinateTransform, QgsFeature, QgsField,
     QgsGeometry, QgsPoint, QgsPointXY, QgsProcessingAlgorithm,
     QgsProcessingException, QgsProcessingParameterBoolean,
+    QgsProcessingParameterEnum,
     QgsProcessingParameterFileDestination, QgsProcessingParameterNumber,
     QgsProcessingParameterRasterLayer, QgsProcessingParameterVectorLayer,
     QgsProject, QgsVectorFileWriter, QgsVectorLayer,
 )
 from qgis.PyQt.QtCore import QMetaType
 
-OVERPASS = "https://overpass-api.de/api/interpreter"
+# Overpass mirrors. All free and volunteer-run, all rate-limited independently —
+# so when one is refusing, another often is not. Same list BlenderGIS ships.
+#
+# Order is the default-first ordering, not importance. Probed 2026-08-16 with a
+# trivial peak-count query, three rounds several minutes apart: overpass-api.de
+# returned HTTP 504 every time, kumi.systems timed out twice of three, and the
+# French instance answered in under a second every time. Re-probe before assuming
+# that still holds — mirror health moves around.
+OVERPASS_SERVERS = [
+    ("overpass.openstreetmap.fr", "https://overpass.openstreetmap.fr/api/interpreter"),
+    ("overpass-api.de (main)", "https://overpass-api.de/api/interpreter"),
+    ("overpass.kumi.systems", "https://overpass.kumi.systems/api/interpreter"),
+]
 USER_AGENT = "QGIS osm_features_to_blender_csv (hiking-video terrain pipeline)"
 LABEL_LEN = 40                    # matches the HOWTO's "Output field length = 40"
+MAX_BACKOFF_SEC = 180             # cap on the exponential wait between retries
 
 # key -> (label, Overpass selector, elevation-filtered)
 FEATURES = [
@@ -73,6 +88,8 @@ class OsmFeaturesToBlenderCsv(QgsProcessingAlgorithm):
     MIN_ELE = "MIN_ELE"
     Z_OFFSET = "Z_OFFSET"
     NODATA = "NODATA"
+    SERVER = "SERVER"
+    RETRIES = "RETRIES"
     OUTPUT = "OUTPUT"
 
     def createInstance(self):
@@ -103,6 +120,15 @@ class OsmFeaturesToBlenderCsv(QgsProcessingAlgorithm):
             "dropped by the filter, as in the manual recipe.\n\n"
             "<b>Z offset</b> lifts the point above the terrain so a label floats "
             "clear of the summit rather than sitting in it.\n\n"
+            "<b>Overpass server</b> — the OpenStreetMap query service the features "
+            "come from. All three mirrors carry the same data but are rate-limited "
+            "separately, so if one keeps refusing, try another.\n\n"
+            "<b>Overpass retries</b> — Overpass is a shared free service and "
+            "rate-limits hard. Each feature type is retried with an exponentially "
+            "growing wait (capped at 3 min), honouring <tt>Retry-After</tt>. "
+            "If a type still fails it is <b>skipped</b> and the CSV is written "
+            "with the rest, flagged in the log — a failing query no longer throws "
+            "away the types that already succeeded.\n\n"
             "Output columns: X, Y, Z, category, osm_id, label, ele_m — written "
             "with GEOMETRY=AS_XYZ and a .csvt sidecar, in the DTM's CRS."
         )
@@ -128,36 +154,59 @@ class OsmFeaturesToBlenderCsv(QgsProcessingAlgorithm):
             self.NODATA, "Elevation to use where the DTM has no data (m)",
             type=QgsProcessingParameterNumber.Double,
             defaultValue=500.0, minValue=-500.0, maxValue=9000.0))
+        self.addParameter(QgsProcessingParameterEnum(
+            self.SERVER, "Overpass server",
+            options=[lab for lab, _url in OVERPASS_SERVERS], defaultValue=0))
+        self.addParameter(QgsProcessingParameterNumber(
+            self.RETRIES, "Overpass retries per feature type",
+            type=QgsProcessingParameterNumber.Integer,
+            defaultValue=8, minValue=1, maxValue=30))
         self.addParameter(QgsProcessingParameterFileDestination(
             self.OUTPUT, "Output CSV", fileFilter="CSV (*.csv)"))
 
     # ── Overpass ────────────────────────────────────────────────────────────
     @staticmethod
-    def _query(selector, bbox, feedback):
-        """bbox is (south, west, north, east) in WGS84."""
+    def _query(selector, bbox, feedback, retries, url):
+        """bbox is (south, west, north, east) in WGS84. Raises on final failure.
+
+        Overpass is a shared free service and rate-limits hard; a busy period can
+        refuse several attempts in a row, so the wait grows exponentially rather
+        than linearly, and honours Retry-After when the server sends one.
+        """
         q = ("[out:json][timeout:180];\n(%s(%.6f,%.6f,%.6f,%.6f););\nout tags center;"
              % ((selector,) + bbox))
         data = urllib.parse.urlencode({"data": q}).encode("utf-8")
-        req = urllib.request.Request(OVERPASS, data=data,
-                                     headers={"User-Agent": USER_AGENT})
-        for attempt in range(3):
+        last = None
+        for attempt in range(retries):
             if feedback.isCanceled():
                 return []
+            req = urllib.request.Request(url, data=data,
+                                         headers={"User-Agent": USER_AGENT})
             try:
                 with urllib.request.urlopen(req, timeout=200) as r:   # nosec B310
                     body = r.read()
                 return json.loads(body.decode("utf-8")).get("elements", [])
             except (urllib.error.URLError, ValueError) as e:
                 # Overpass answers an HTML error page when it is rate-limiting;
-                # json.loads then fails. Back off and try again.
-                feedback.pushInfo("   Overpass attempt %d failed (%s); retrying…"
-                                  % (attempt + 1, type(e).__name__))
-                if attempt == 2:
-                    raise QgsProcessingException(
-                        "Overpass query failed after 3 attempts: %s" % e)
-                import time
-                time.sleep(20 * (attempt + 1))
-        return []
+                # json.loads then fails with ValueError rather than URLError.
+                last = e
+                if attempt == retries - 1:
+                    break
+                wait = min(20 * 2 ** attempt, MAX_BACKOFF_SEC)
+                hdrs = getattr(e, "headers", None)        # HTTPError carries them
+                if hdrs is not None:
+                    try:
+                        wait = max(wait, int(hdrs.get("Retry-After") or 0))
+                    except (TypeError, ValueError):
+                        pass
+                feedback.pushInfo("   attempt %d/%d failed (%s); waiting %d s…"
+                                  % (attempt + 1, retries, type(e).__name__, wait))
+                for _ in range(wait):                     # cancellable sleep
+                    if feedback.isCanceled():
+                        return []
+                    time.sleep(1)
+        raise QgsProcessingException(
+            "Overpass query failed after %d attempts: %s" % (retries, last))
 
     @staticmethod
     def _to_float(raw):
@@ -179,6 +228,9 @@ class OsmFeaturesToBlenderCsv(QgsProcessingAlgorithm):
         min_ele = self.parameterAsDouble(parameters, self.MIN_ELE, context)
         z_off = self.parameterAsDouble(parameters, self.Z_OFFSET, context)
         nodata = self.parameterAsDouble(parameters, self.NODATA, context)
+        retries = self.parameterAsInt(parameters, self.RETRIES, context)
+        srv_label, srv_url = OVERPASS_SERVERS[
+            self.parameterAsEnum(parameters, self.SERVER, context)]
         out_path = self.parameterAsFileOutput(parameters, self.OUTPUT, context)
 
         wanted = [(k, lab, sel, filt) for k, lab, sel, filt in FEATURES
@@ -197,6 +249,8 @@ class OsmFeaturesToBlenderCsv(QgsProcessingAlgorithm):
         bbox = (rect.yMinimum(), rect.xMinimum(), rect.yMaximum(), rect.xMaximum())
         feedback.pushInfo("AOI bbox (WGS84): %.5f,%.5f,%.5f,%.5f" % bbox)
         feedback.pushInfo("Draping onto %s (%s)" % (dtm.name(), out_crs.authid()))
+        feedback.pushInfo("Overpass server: %s (%d retries per type)"
+                          % (srv_label, retries))
 
         # Overpass takes a lat/lon box. Reprojecting a UTM square to WGS84 bulges
         # its edges, so the query returns features just outside the AOI — which
@@ -221,11 +275,23 @@ class OsmFeaturesToBlenderCsv(QgsProcessingAlgorithm):
         layer.updateFields()
 
         feats, no_data_hits, outside = [], 0, 0
+        failed = []
         for i, (key, label, selector, ele_filtered) in enumerate(wanted):
             if feedback.isCanceled():
                 return {}
             feedback.pushInfo("\n%s — querying Overpass…" % label)
-            elements = self._query(selector, bbox, feedback)
+            try:
+                elements = self._query(selector, bbox, feedback, retries, srv_url)
+            except QgsProcessingException as e:
+                # One feature type failing must NOT throw away the ones that
+                # worked - those queries can take minutes. Carry on and write
+                # what we have, flagged as incomplete.
+                failed.append(label)
+                feedback.reportError(
+                    "   %s FAILED on %s, continuing without it — %s"
+                    % (label, srv_label, e), fatalError=False)
+                feedback.setProgress(85.0 * (i + 1) / len(wanted))
+                continue
             kept = skipped_noname = skipped_low = 0
             for el in elements:
                 tags = el.get("tags") or {}
@@ -272,6 +338,12 @@ class OsmFeaturesToBlenderCsv(QgsProcessingAlgorithm):
             feedback.setProgress(85.0 * (i + 1) / len(wanted))
 
         if not feats:
+            if failed:
+                raise QgsProcessingException(
+                    "Every Overpass query failed (%s) on %s, so there is nothing "
+                    "to write. It is probably rate-limiting — wait a few minutes, "
+                    "raise 'Overpass retries per feature type', or pick a "
+                    "different 'Overpass server'." % (", ".join(failed), srv_label))
             raise QgsProcessingException(
                 "Nothing matched — is the AOI over an area OSM covers, and are the "
                 "elevation filter and feature types set as you expect?")
@@ -296,5 +368,12 @@ class OsmFeaturesToBlenderCsv(QgsProcessingAlgorithm):
             raise QgsProcessingException("Could not write the CSV: %s" % (err[1],))
 
         feedback.setProgress(100)
-        feedback.pushInfo("\n✓ %d features → %s" % (len(feats), out_path))
+        if failed:
+            feedback.pushWarning(
+                "\nINCOMPLETE: %d of %d feature type(s) failed and are MISSING from "
+                "the CSV — %s. The CSV was still written with the rest. Re-run with "
+                "only the missing type(s) ticked and merge, or try again later."
+                % (len(failed), len(wanted), ", ".join(failed)))
+        feedback.pushInfo("\n%s %d features → %s"
+                          % ("!" if failed else "✓", len(feats), out_path))
         return {self.OUTPUT: out_path}
