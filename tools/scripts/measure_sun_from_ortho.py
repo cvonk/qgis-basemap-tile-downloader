@@ -96,7 +96,7 @@ def discover(root, only=None):
                 continue
             aoi, rest, epsg, extent = p
             key = (epsg, extent)
-            if rest.upper().startswith("DTM"):
+            if rest.upper().startswith(("DTM", "DEM")):   # DEM = a DTM with nodata filled
                 dtms[key] = os.path.join(d, f)
             else:
                 k = key + (source_of(rest),)
@@ -271,8 +271,17 @@ def synthetic_lum(dem, cell, size, az, el):
 
 # ----------------------------------------------------------------------- main
 def blender_values(az, el):
+    """Lamp rotation flips by 180, the Sky Texture does NOT - see the note below.
+
+    The lamp's rotation aims the light's TRAVEL direction (its local -Z), i.e.
+    away from the sun, hence 180 - azimuth. sun_rotation is the direction the sun
+    IS in, so it takes the azimuth unchanged. Measured with an equirectangular
+    probe render (markers at +Y/+X to calibrate the mapping): sun_rotation -25
+    put the disc at azimuth 335, sun_rotation 155 put it at 155. Using
+    azimuth - 180 here silently placed the sky's sun opposite the lamp.
+    """
     return {"sun_rot_x": round(90.0 - el, 1), "sun_rot_z": round(180.0 - az, 1),
-            "sky_elevation": round(float(el), 1), "sky_rotation": round(az - 180.0, 1)}
+            "sky_elevation": round(float(el), 1), "sky_rotation": round(float(az), 1)}
 
 
 def main():
