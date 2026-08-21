@@ -9,14 +9,25 @@ provide — e.g. Styria's per-flight-period DOP layers (Flug_2022_2024_RGB /
 _2019_2021_RGB / _2016_2018_RGB), which are separate ImageServer services the
 plugin can't harmonise in one pass.
 
-Give the inputs **newest first**: they are composited in that order, first on
-top, so newer imagery wins where present and older fills the gaps.
+ORDER THE INPUTS BEST IMAGERY FIRST. They are stacked in that order, first on
+top, so the first layer's pixels win wherever it has data and the later ones only
+fill the gaps it leaves. "Best" is your call per area: usually the newest flight,
+but pick the sharper, cleaner or less cloudy sheet where they differ.
 
-Separately, the layer covering the most of the area becomes the colour reference
-— its look is kept, and the others are matched to it per channel on the strip
-where they border it. Reference and stacking order are INDEPENDENT: the
-reference decides how the result looks, not which pixels survive. So a small
-sheet listed first still sits on top of the big one it was matched to.
+Separately — and this is the part that surprises people — the layer covering the
+most of the area becomes the colour REFERENCE: its look is kept and the others
+are matched to it per channel on the strip where they border it.
+
+The two are INDEPENDENT. Order decides which PIXELS survive; coverage decides
+which LOOK they are matched to, and that is not a parameter. So the reference can
+sit at the BOTTOM of the stack, barely visible, while everything above it still
+wears its colours - which is right: you want the small sheet you put first to
+blend into the big one it borders, not the other way round.
+
+The log states both, separately:
+
+    Reference = input #2 (95% coverage); matching the others to it.
+    Stacking (top first): #1 over #2
 
 Use it to reduce the banding a provider's "current" mosaic shows between flight
 years, or to butt one country's imagery against another's across a border.
@@ -77,13 +88,22 @@ class HarmoniseOrthophotos(QgsProcessingAlgorithm):
     def shortHelpString(self):
         return (
             "Colour-match several overlapping orthophotos and composite them into "
-            "one seam-reduced GeoTIFF.\n\nAdd the layers **newest first** — they "
-            "are stacked in that order, <b>first on top</b>.\n\nSeparately, the "
-            "one covering the most of the area is the colour reference (its look "
-            "is kept) and the others are matched to it where they border it. "
-            "Reference and stacking are <b>independent</b>: the reference decides "
-            "how the result LOOKS, not which pixels survive — so a small sheet "
-            "listed first still sits on top of the big one it matched to. "
+            "one seam-reduced GeoTIFF.\n\n"
+            "<b>Add the BEST imagery first.</b> Layers are stacked in the order "
+            "you list them, <b>first on top</b>, so the first layer's pixels win "
+            "wherever it has data and the rest only fill the gaps it leaves. "
+            "Usually that means newest first, but pick whichever is sharper, "
+            "cleaner or less cloudy where they differ.\n\n"
+            "Separately, the layer covering the <b>most of the area</b> becomes "
+            "the colour <b>reference</b>: its look is kept and the others are "
+            "matched to it where they border it.\n\n"
+            "These are <b>independent</b>. Order decides which PIXELS survive; "
+            "coverage decides which LOOK they take, and that is not a setting. So "
+            "the reference may sit at the bottom of the stack, barely visible, "
+            "while everything above it wears its colours — which is what you want, "
+            "so the sheet you put first blends into the one it borders. The log "
+            "reports both: <tt>Reference = input #N</tt> and "
+            "<tt>Stacking (top first)</tt>.\n\n"
             "Reduces the banding a 'current' mosaic shows between "
             "flight years — e.g. Styria's Flug_2022_2024 / _2019_2021 / _2016_2018 "
             "DOP layers (download each with the plugin, then merge here).\n\n"
@@ -94,7 +114,7 @@ class HarmoniseOrthophotos(QgsProcessingAlgorithm):
 
     def initAlgorithm(self, config=None):
         self.addParameter(QgsProcessingParameterMultipleLayers(
-            self.INPUTS, "Orthophotos (add newest first)",
+            self.INPUTS, "Orthophotos (best first — first one ends up on top)",
             layerType=QgsProcessing.TypeRaster))
         self.addParameter(QgsProcessingParameterNumber(
             self.MATCH, "Match brightness/contrast strength (0–1)",
