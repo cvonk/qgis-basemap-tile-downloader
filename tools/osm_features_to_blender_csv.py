@@ -49,14 +49,16 @@ from qgis.PyQt.QtCore import QMetaType
 # Overpass mirrors. All free and volunteer-run, all rate-limited independently —
 # so when one is refusing, another often is not. Same list BlenderGIS ships.
 #
-# Order is the default-first ordering, not importance. Probed 2026-08-16 with a
-# trivial peak-count query, three rounds several minutes apart: overpass-api.de
-# returned HTTP 504 every time, kumi.systems timed out twice of three, and the
-# French instance answered in under a second every time. Re-probe before assuming
-# that still holds — mirror health moves around.
+# First entry is the default. overpass-api.de is the canonical instance and is
+# the most reliable here IN PRACTICE, over many real runs. A one-off probe can
+# disagree sharply: on 2026-08-16 three rounds of a trivial query had
+# overpass-api.de returning HTTP 504 every time while the French instance
+# answered in under a second, which is a snapshot of one bad afternoon, not a
+# ranking. Judge these by how they behave across a whole session, not by a
+# spot check.
 OVERPASS_SERVERS = [
-    ("overpass.openstreetmap.fr", "https://overpass.openstreetmap.fr/api/interpreter"),
     ("overpass-api.de (main)", "https://overpass-api.de/api/interpreter"),
+    ("overpass.openstreetmap.fr", "https://overpass.openstreetmap.fr/api/interpreter"),
     ("overpass.kumi.systems", "https://overpass.kumi.systems/api/interpreter"),
 ]
 USER_AGENT = "QGIS osm_features_to_blender_csv (hiking-video terrain pipeline)"
