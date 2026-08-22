@@ -4,7 +4,7 @@ qgisMinimumVersion=3.40.8
 qgisMaximumVersion=4.99
 description=Download a WMS, WMTS, WCS, XYZ, or ArcGIS REST basemap over an extent and mosaic it into a GeoTIFF.
 about=Auto-detects whether the chosen layer is a WMS, WMTS, WCS, XYZ, or ArcGIS REST MapServer source. Tiles the request over a chosen extent (WMS GetMap / WCS GetCoverage at a chosen resolution/CRS, or WMTS / Web-Mercator {z}/{x}/{y} at a chosen zoom), downloads with adaptive throttling and a resumable SQLite work queue, georeferences each tile, and builds a compressed, tiled GeoTIFF mosaic (with overviews) using GDAL. WCS coverages (e.g. elevation) are fetched losslessly and keep their native samples and nodata. Optionally reprojects to a chosen output CRS and crops to the exact extent. Requires the GDAL Python bindings. For personal and educational use only — respect each provider's Terms of Service and usage limits.
-version=1.13.6
+version=1.13.7
 author=Coert Vonk
 email=ing.c.j.s.vonk@gmail.com
 license=GPL-3.0-or-later
@@ -16,7 +16,25 @@ experimental=False
 deprecated=False
 category=Raster
 tags=wms,wmts,wcs,xyz,tiles,download,raster,mosaic,gdal,basemap,orthophoto,dtm,dem,elevation,aoi,web mercator
-changelog=1.13.6 - No change to the plugin itself; both fixes are in the
+changelog=1.13.7 - Fixes a class of silent nodata: an area of interest that is
+    ROTATED relative to the output CRS. The standalone Processing scripts ran
+    the AOI's bounding box through transformBoundingBox and used the result as
+    the warp cutline, which pads the canvas out to the envelope of the
+    reprojected rectangle - and every added pixel is nodata. A 31 km AOI taken
+    from Austria GK Central into GK West inflates by about 7%%, and on a Float32
+    DTM that nodata (-9999) reads downstream as a cliff rather than a gap. The
+    five AOI scripts (Tyrol, Salzburg, Austria BEV, Bavaria, swisstopo) now
+    split that helper in two: the tile QUERY still uses the inflated box, plus a
+    margin so resampling at the AOI edge always has neighbouring source pixels,
+    while the OUTPUT extent refuses a rotated reprojection and names the remedy
+    (build a matching AOI with "Reproject / resize AOI"). Rotation-free pairs
+    such as EPSG:25832 and EPSG:32632 pass through untouched. The plugin's own
+    export path was already correct - it cuts with the real reprojected polygon,
+    not a bounding box - but "Crop output to the exact extent" still leaves
+    nodata corners when the extent is rotated, so the dialog now warns before
+    the run, and only where it matters: single-band nodata sources such as a
+    DTM, never RGB, and only above 1%% of the canvas.
+    1.13.6 - No change to the plugin itself; both fixes are in the
     standalone Processing scripts asset. "Harmonise & merge orthophotos": the
     stack order now follows the INPUT order (first input on top) instead of
     always putting the colour reference on top. Those were conflated, so a

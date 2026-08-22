@@ -27,7 +27,7 @@ from qgis.core import (
     QgsProcessingParameterVectorLayer, QgsProcessingParameterEnum,
     QgsProcessingParameterNumber, QgsProcessingParameterCrs,
     QgsProcessingParameterRasterDestination, QgsCoordinateReferenceSystem,
-    QgsCoordinateTransform, QgsProject, QgsVectorLayer,
+    QgsCoordinateTransform, QgsProject, QgsRectangle, QgsPointXY, QgsVectorLayer,
 )
 
 try:
@@ -55,18 +55,68 @@ def _active_layer_id():
         return None
 
 
-def _aoi_rect(alg, parameters, context, target_crs):
-    """The AOI layer's extent in target_crs — the replacement for
-    parameterAsExtent now that the AOI is a layer picker."""
+_ROT_TOL = 0.002        # >0.2% of the envelope wasted -> the grids are meaningfully rotated
+QUERY_MARGIN = 500.0     # m in EPSG:3857, slack so edge pixels have neighbours
+
+
+def _aoi_layer(alg, parameters, context):
     layer = alg.parameterAsVectorLayer(parameters, alg.AOI, context)
     if layer is None:
         raise QgsProcessingException("Choose a vector layer for the area of interest.")
+    return layer
+
+
+def _aoi_rect(alg, parameters, context, target_crs, margin=0.0):
+    """The AOI layer's extent in target_crs, for SELECTING source tiles.
+
+    transformBoundingBox returns the axis-aligned envelope of the reprojected
+    rectangle, so a rotated CRS pair inflates it — the harmless direction here, it
+    only over-selects tiles. `margin` (in target_crs units) adds slack so resampling
+    at the AOI edge always has neighbouring source pixels.
+    NOT for the output extent: use _aoi_rect_out, which refuses the rotated case."""
+    layer = _aoi_layer(alg, parameters, context)
     rect = layer.extent()
     src = layer.crs()
     if src.isValid() and target_crs.isValid() and src != target_crs:
         rect = QgsCoordinateTransform(
             src, target_crs, QgsProject.instance()).transformBoundingBox(rect)
+    if margin:
+        rect = QgsRectangle(rect.xMinimum() - margin, rect.yMinimum() - margin,
+                            rect.xMaximum() + margin, rect.yMaximum() + margin)
     return rect
+
+
+def _aoi_rect_out(alg, parameters, context, out_crs):
+    """The AOI extent for the CUTLINE / output extent — refuses a rotated reprojection.
+
+    An axis-aligned raster cannot hold an AOI that is rotated relative to it.
+    transformBoundingBox would silently pad the canvas out to the envelope, and every
+    added pixel is nodata: a 31 km AOI taken from GK Central (31255/31258) into GK West
+    (31254) inflates to 33.4 km, ~14% of the output nodata. Pairs that differ by no
+    rotation (25832/32632, or a false-easting-only sibling) pass straight through."""
+    layer = _aoi_layer(alg, parameters, context)
+    rect = layer.extent()
+    src = layer.crs()
+    if not (src.isValid() and out_crs.isValid()) or src == out_crs:
+        return rect
+    xf = QgsCoordinateTransform(src, out_crs, QgsProject.instance())
+    box = xf.transformBoundingBox(rect)
+    p = [xf.transform(QgsPointXY(x, y)) for x, y in
+         ((rect.xMinimum(), rect.yMinimum()), (rect.xMaximum(), rect.yMinimum()),
+          (rect.xMaximum(), rect.yMaximum()), (rect.xMinimum(), rect.yMaximum()))]
+    quad = abs(sum(p[i].x() * p[(i + 1) % 4].y() - p[(i + 1) % 4].x() * p[i].y()
+                   for i in range(4))) / 2.0                      # shoelace area
+    envelope = box.width() * box.height()
+    waste = 1.0 - quad / envelope if envelope > 0 else 0.0
+    if waste > _ROT_TOL:
+        raise QgsProcessingException(
+            f"The AOI layer is in {src.authid()} but the Output CRS is {out_crs.authid()}, "
+            f"and those grids are rotated relative to each other. An axis-aligned output "
+            f"would be padded out to an envelope that is {waste * 100:.1f}% nodata. "
+            f"Reproject the AOI first with Scripts > AOI > 'Reproject / resize AOI' (it "
+            f"keeps the centre and writes an exact box), or set Output CRS to "
+            f"{src.authid()}.")
+    return box
 
 
 class TyrolDgmAoi(QgsProcessingAlgorithm):
@@ -104,7 +154,7 @@ class TyrolDgmAoi(QgsProcessingAlgorithm):
 
     def initAlgorithm(self, config=None):
         self.addParameter(QgsProcessingParameterVectorLayer(
-            self.AOI, "Area of interest (vector layer, any CRS)",
+            self.AOI, "Area of interest (vector layer, matching the Output CRS)",
             defaultValue=_active_layer_id()))
         self.addParameter(QgsProcessingParameterEnum(
             self.MODEL, "Model", options=[m[0] for m in MODELS], defaultValue=0))
@@ -185,7 +235,8 @@ class TyrolDgmAoi(QgsProcessingAlgorithm):
         out_crs = self.parameterAsCrs(parameters, self.CRS, context)
         out_path = self.parameterAsOutputLayer(parameters, self.OUTPUT, context)
 
-        rect3857 = _aoi_rect(self, parameters, context, QgsCoordinateReferenceSystem("EPSG:3857"))
+        rect3857 = _aoi_rect(self, parameters, context,
+                             QgsCoordinateReferenceSystem("EPSG:3857"), margin=QUERY_MARGIN)
         if rect3857.isEmpty():
             raise QgsProcessingException("The area of interest is empty.")
         bbox = (rect3857.xMinimum(), rect3857.yMinimum(),
@@ -225,7 +276,7 @@ class TyrolDgmAoi(QgsProcessingAlgorithm):
                     f"Found tiles but no {prefix.upper()} raster inside their ZIPs.")
             feedback.pushInfo(f"Downloaded {len(sources)} tile(s); warping → {out_path}")
 
-            rect = _aoi_rect(self, parameters, context, out_crs)
+            rect = _aoi_rect_out(self, parameters, context, out_crs)
             cut = self._cutline(rect, out_crs)
             warp_res = self._warp_res(res, out_crs, feedback)
             ds = gdal.Warp(out_path, sources, options=gdal.WarpOptions(

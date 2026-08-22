@@ -22,7 +22,7 @@ from qgis.PyQt.QtWidgets import (
 )
 from qgis.core import (
     QgsProject, QgsMapLayerProxyModel, QgsRasterLayer, QgsVectorLayer, QgsSettings,
-    QgsRectangle, QgsCoordinateReferenceSystem, QgsCoordinateTransform,
+    QgsRectangle, QgsCoordinateReferenceSystem, QgsCoordinateTransform, QgsPointXY,
 )
 from qgis.gui import (
     QgsMapLayerComboBox, QgsProjectionSelectionWidget, QgsCollapsibleGroupBox,
@@ -990,6 +990,65 @@ class BasemapTileDialog(QDialog):
             pass
         return None
 
+    @staticmethod
+    def _extent_rotation_waste(ext, src, target):
+        """Fraction of the axis-aligned canvas in `target` that the reprojected
+        extent rectangle does NOT cover — 0.0 when the two grids share an
+        orientation, ~0.034 for EPSG:3857 vs a UTM zone in the Alps."""
+        xform = QgsCoordinateTransform(
+            src, target, QgsProject.instance().transformContext())
+        p = [xform.transform(QgsPointXY(x, y)) for x, y in
+             ((ext.xMinimum(), ext.yMinimum()), (ext.xMaximum(), ext.yMinimum()),
+              (ext.xMaximum(), ext.yMaximum()), (ext.xMinimum(), ext.yMaximum()))]
+        box = xform.transformBoundingBox(ext)
+        env = box.width() * box.height()
+        if env <= 0:
+            return None
+        quad = abs(sum(p[i].x() * p[(i + 1) % 4].y() - p[(i + 1) % 4].x() * p[i].y()
+                       for i in range(4))) / 2.0          # shoelace area
+        return max(0.0, 1.0 - quad / env)
+
+    def _rotated_extent_warning(self):
+        """“Crop output to the exact extent” clips the mosaic to the extent
+        rectangle reprojected into the OUTPUT CRS. When those two grids are rotated
+        relative to each other, that rectangle sits at an angle inside the
+        axis-aligned canvas and its corners come out as nodata. For an RGB source
+        that is only transparency, but a single-band DEM writes its nodata value
+        (e.g. -9999) there, and anything ignoring the nodata tag — Blender's
+        displacement modifier, say — renders it as a cliff. Return a warning when
+        that would cost more than 1% of the canvas on such a source, else None."""
+        try:
+            if not self.clip_check.isChecked() or not self.extent_widget.isValid():
+                return None
+            layer = self.layer_combo.currentLayer()
+            crs   = self.crs_widget.crs()
+            if layer is None or not crs.isValid():
+                return None
+            src = self.extent_widget.outputCrs()
+            ext = self.extent_widget.outputExtent()
+            if src == crs or ext.isEmpty():
+                return None
+            source = engine.source_for(layer)
+            hints  = getattr(source, "mosaic_hints", None)
+            if hints is None:
+                return None
+            nd = (hints(source.extract_params(layer), {}) or {}).get("nodata")
+            if nd is None:
+                return None                  # RGB: the corners are just alpha
+            waste = self._extent_rotation_waste(ext, src, crs)
+            if waste is None or waste <= 0.01:
+                return None
+            return (f"The extent is given in {src.authid()} but the output CRS is "
+                    f"{crs.authid()}, and those grids are rotated relative to each "
+                    f"other. With “Crop output to the exact extent” on, roughly "
+                    f"{waste * 100:.0f}% of the result — its corners — will be "
+                    f"nodata ({nd:g}). Anything that ignores the nodata tag renders "
+                    f"that as a cliff. Giving the extent in {crs.authid()}, or "
+                    f"setting the output CRS to {src.authid()}, avoids it. "
+                    f"Continue anyway?")
+        except Exception:  # nosec B110  — advisory only; never block the dialog
+            return None
+
     def accept(self):
         # Resuming an existing job just continues it, so skip both the
         # large-download/ToS reminder and the overwrite-output prompt.
@@ -1000,6 +1059,15 @@ class BasemapTileDialog(QDialog):
         aoi_warn = None if resuming else self._multi_feature_extent_warning()
         if aoi_warn and QMessageBox.question(
                 self, "Extent layer has multiple features", aoi_warn,
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.No) != QMessageBox.StandardButton.Yes:
+            return          # keep the dialog open
+
+        # A rotated extent + "crop to the exact extent" leaves nodata corners; on a
+        # single-band DEM that reads downstream as a cliff, so say so up front.
+        rot_warn = None if resuming else self._rotated_extent_warning()
+        if rot_warn and QMessageBox.question(
+                self, "Extent is rotated relative to the output CRS", rot_warn,
                 QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
                 QMessageBox.StandardButton.No) != QMessageBox.StandardButton.Yes:
             return          # keep the dialog open
