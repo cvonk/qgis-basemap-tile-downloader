@@ -10,6 +10,7 @@ import math
 
 TILE_PIXELS = 256                     # XYZ tiles are 256×256 by definition
 WM_ORIGIN   = 20037508.342789244      # half the world extent, metres
+MAX_LAT     = 85.05112877980659       # Web Mercator cuts off here
 
 
 def tile_span_m(z):
@@ -27,6 +28,24 @@ def tile_resolution_m_at_lat(z, lat_deg):
     towards the poles, so the true ground resolution is the equatorial value
     times cos(latitude)."""
     return tile_resolution_m(z) * math.cos(math.radians(lat_deg))
+
+
+def zoom_for_resolution_m(res_m, lat_deg=None):
+    """The (fractional) XYZ zoom whose ground resolution is res_m — the inverse
+    of tile_resolution_m_at_lat. Pass the latitude to treat res_m as a TRUE
+    ground size; without it res_m is read as the equatorial (nominal) figure,
+    which is what a Web-Mercator pyramid actually advertises. Raises ValueError
+    on a non-positive resolution, or a latitude outside Web Mercator's own
+    +/-MAX_LAT domain — testing cos(lat) <= 0 does NOT catch that, since
+    cos(radians(90)) is 6.1e-17 rather than 0 and yields a nonsense zoom."""
+    if res_m <= 0:
+        raise ValueError("resolution must be > 0")
+    equatorial = res_m
+    if lat_deg is not None:
+        if abs(lat_deg) > MAX_LAT:
+            raise ValueError("latitude outside Web Mercator (+/-%.4f deg)" % MAX_LAT)
+        equatorial = res_m / math.cos(math.radians(lat_deg))
+    return math.log2((2.0 * WM_ORIGIN) / (TILE_PIXELS * equatorial))
 
 
 def tile_bounds_3857(x, y, z):

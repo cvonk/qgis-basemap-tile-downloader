@@ -9,6 +9,7 @@ rasters, zoom level for XYZ/WMTS.
 """
 
 import configparser
+import logging
 import math
 import os
 import subprocess  # nosec B404
@@ -30,6 +31,10 @@ from qgis.gui import (
 )
 
 from . import engine, tilemath
+
+# Matrix-set CRSs whose ScaleDenominator is nominal at the equator, so the true
+# ground resolution is that figure times cos(latitude).
+WEBMERC_AUTHIDS = ("EPSG:3857", "EPSG:900913", "EPSG:102100")
 
 SETTINGS_GROUP = "basemap_tile_downloader"
 
@@ -164,6 +169,7 @@ class BasemapTileDialog(QDialog):
         self.setWindowTitle(_window_title())
         self.setMinimumWidth(500)
         self._last_source = None
+        self._wmts_matrices = {}      # cache key -> (matrices, tms_crs, pixel_m)
         self._src_cache = (None, None)   # (layer, SOURCE_NAME) — see _current_source_name
 
         form = QFormLayout()
@@ -245,6 +251,19 @@ class BasemapTileDialog(QDialog):
             "Greyed out for a local raster, which is exported at its own "
             "native resolution.")
         self.res_spin.valueChanged.connect(self._update_estimate)
+        # WMS/WCS/ArcGIS have no zoom levels; this only maps the resolution
+        # onto the XYZ pyramid so the two can be compared. See
+        # _update_res_zoom_label.
+        self.res_zoom_info = QLabel("")
+        self.res_zoom_info.setToolTip(
+            "WMS, WCS and ArcGIS are dynamic services — they render whatever "
+            "bbox and pixel size you ask for, so they have NO zoom levels. This "
+            "line only says which XYZ zoom would land on the same ground pixel, "
+            "for comparing against a zoom-addressed source.\n"
+            "Web-Mercator zooms are nominal at the equator, so the figure is "
+            "taken at the extent's latitude.")
+        self.res_spin.valueChanged.connect(self._update_res_zoom_label)
+        self.extent_widget.extentChanged.connect(self._update_res_zoom_label)
         # The live bounding-box tile-count estimate lives with the size controls.
         self.estimate_lbl = QLabel("")
         self.estimate_lbl.setToolTip(
@@ -256,6 +275,7 @@ class BasemapTileDialog(QDialog):
         gform = QFormLayout(self.grid_group)
         gform.addRow("Tile size (px):", self.tile_spin)
         gform.addRow("Resolution (units/px):", self.res_spin)
+        gform.addRow("", self.res_zoom_info)
         gform.addRow("", self.estimate_lbl)
         form.addRow(self.grid_group)
 
@@ -279,6 +299,19 @@ class BasemapTileDialog(QDialog):
             "extent's latitude (Web-Mercator pixels shrink toward the poles). "
             "Pick the coarsest zoom that still shows the detail you need.")
         form.addRow(self.zoom_res_lbl, self.zoom_res_info)
+
+        # WMTS only: its true resolution lives in the service's tile-matrix set,
+        # so it takes a capabilities fetch. On demand, to keep the dialog
+        # network-free by default. See _read_wmts_resolutions.
+        self.wmts_res_lbl = QLabel("")
+        self.wmts_res_btn = QPushButton("Read resolutions from service")
+        self.wmts_res_btn.setToolTip(
+            "Fetch this WMTS service's capabilities once and show what each "
+            "matrix index really is in m/px. A matrix set is not necessarily "
+            "Web Mercator, and the same resolution can sit at a different index "
+            "in each set a server offers, so the number cannot be guessed.")
+        self.wmts_res_btn.clicked.connect(self._read_wmts_resolutions)
+        form.addRow(self.wmts_res_lbl, self.wmts_res_btn)
 
         # Tile-count estimate for the zoom sources (XYZ/WMTS). The grid sources'
         # estimate lives in the Tile size & resolution group, which is hidden here.
@@ -666,8 +699,10 @@ class BasemapTileDialog(QDialog):
         # service, not a fixed grid) — see _update_zoom_label.
         self._set_row_visible(self.zoom_res_lbl, self.zoom_res_info, is_zoom)
         self._set_row_visible(self.zoom_est_lbl, self.zoom_estimate_info, is_zoom)
+        self._set_row_visible(self.wmts_res_lbl, self.wmts_res_btn, name == "WMTS")
         self._clamp_zoom_range(name)
         self._update_zoom_label()
+        self._update_res_zoom_label()
 
         # On a source-type change, default the output CRS to that source's native.
         if name and name != self._last_source:
@@ -724,7 +759,8 @@ class BasemapTileDialog(QDialog):
             # from the service's tile matrix set (often not Web Mercator), so a
             # Web-Mercator m/px figure here would be misleading — don't show one.
             self.zoom_res_info.setText(
-                "tile-matrix index (resolution set by the service)")
+                self._wmts_resolution_text(z)
+                or "tile-matrix index (resolution set by the service)")
             return
         lat = self._extent_center_lat()
         if lat is None:
@@ -734,6 +770,113 @@ class BasemapTileDialog(QDialog):
             self.zoom_res_info.setText(
                 f"≈ {tilemath.tile_resolution_m_at_lat(z, lat):.3f} m/px "
                 f"at the extent (~{lat:.1f}°)")
+
+    def _update_res_zoom_label(self, *args):
+        """Which XYZ zoom would give the same ground pixel as the chosen
+        resolution. WMS, WCS and ArcGIS are DYNAMIC services — they render any
+        bbox/size asked for, so they have no zoom levels at all; this is purely a
+        yardstick for comparing against a zoom-addressed source. Blank unless the
+        request CRS is metric, since for a geographic one the spinbox is degrees."""
+        try:
+            if self._current_source_name() not in ("WMS", "WCS", "GeoTIFF", "ArcGIS"):
+                self.res_zoom_info.setText("")
+                return
+            layer = self.layer_combo.currentLayer()
+            if layer is None:
+                self.res_zoom_info.setText("")
+                return
+            params = engine.source_for(layer).extract_params(layer)      # no network
+            if QgsCoordinateReferenceSystem(params["crs"]).isGeographic():
+                self.res_zoom_info.setText(
+                    "resolution is in degrees here — no zoom equivalent")
+                return
+            lat = self._extent_center_lat()
+            z   = tilemath.zoom_for_resolution_m(self.res_spin.value(), lat)
+            if lat is None:
+                self.res_zoom_info.setText(f"≈ XYZ zoom {z:.1f} at the equator")
+                return
+            zi = max(0, min(22, int(round(z))))
+            self.res_zoom_info.setText(
+                f"≈ XYZ zoom {z:.1f} at the extent (~{lat:.1f}°); "
+                f"zoom {zi} = {tilemath.tile_resolution_m_at_lat(zi, lat):.3f} m/px")
+        except Exception:  # nosec B110  — cosmetic only; never block the dialog
+            self.res_zoom_info.setText("")
+
+    def _wmts_cache_key(self, params):
+        return (params.get("caps_url"), params.get("layer"),
+                params.get("tile_matrix_set"))
+
+    def _read_wmts_resolutions(self):
+        """Fetch the WMTS capabilities ONCE, on demand, so the zoom row can show a
+        real m/px instead of a bare matrix index. Behind a button because the
+        dialog is otherwise network-free and a slow service would freeze it.
+        Cached per capabilities URL + layer + matrix set."""
+        layer = self.layer_combo.currentLayer()
+        if layer is None or self._current_source_name() != "WMTS":
+            return
+        src = engine.source_for(layer)
+        try:
+            params = src.extract_params(layer)
+        except Exception as e:      # noqa: BLE001  — report, never crash the dialog
+            self.zoom_res_info.setText(f"could not read the layer: {e}")
+            return
+        key = self._wmts_cache_key(params)
+        if key not in self._wmts_matrices:
+            self.wmts_res_btn.setEnabled(False)
+            self.zoom_res_info.setText("reading capabilities…")
+            self.zoom_res_info.repaint()
+            try:
+                src.prepare(params, {}, logging.getLogger(__name__))
+                self._wmts_matrices[key] = (
+                    params.get("matrices") or [],
+                    params.get("tms_crs") or "EPSG:3857",
+                    getattr(src, "STANDARD_PIXEL_SIZE_M", 0.00028))
+            except Exception as e:  # noqa: BLE001
+                self.zoom_res_info.setText(f"capabilities unavailable: {e}")
+                return
+            finally:
+                self.wmts_res_btn.setEnabled(True)
+        mats = self._wmts_matrices[key][0]
+        if mats:
+            # The service's real matrix count beats the guessed 0..30 range.
+            self.zoom_spin.setRange(0, len(mats) - 1)
+        self._update_zoom_label()
+        self._update_estimate()
+
+    def _wmts_resolution_text(self, z):
+        """Real m/px for matrix index z, or None until the capabilities are read.
+
+        ScaleDenominator becomes metres per pixel via the OGC standardised
+        rendering pixel (0.00028 m). That figure is NOMINAL for a geographic or
+        Web-Mercator matrix set — shrink it by cos(latitude) for the true ground
+        size — but is already true for a local metric projection such as UTM or
+        Gauss-Krüger, which is why the CRS has to be checked and not assumed."""
+        try:
+            layer = self.layer_combo.currentLayer()
+            if layer is None:
+                return None
+            params = engine.source_for(layer).extract_params(layer)
+            hit = self._wmts_matrices.get(self._wmts_cache_key(params))
+            if not hit:
+                return None
+            mats, tms_crs, pixel_m = hit
+            if not mats or not (0 <= z < len(mats)):
+                return None
+            mat = mats[z]
+            nominal = mat["scale"] * pixel_m
+            crs = QgsCoordinateReferenceSystem(tms_crs)
+            equatorial = crs.isGeographic() or tms_crs in WEBMERC_AUTHIDS
+            lat = self._extent_center_lat()
+            head = f"matrix “{mat['id']}” ({tms_crs}): "
+            if equatorial and lat is not None:
+                true_m = nominal * math.cos(math.radians(lat))
+                return head + (f"≈ {true_m:.3f} m/px at the extent (~{lat:.1f}°) "
+                               f"— {nominal:.3f} nominal")
+            if equatorial:
+                return head + f"≈ {nominal:.3f} m/px at the equator"
+            return head + f"≈ {nominal:.3f} m/px"
+        except Exception:  # nosec B110  — cosmetic only
+            return None
 
     # ── tile-count estimate ───────────────────────────────────────────────────
     def _extent_bbox_in(self, target_crs):
