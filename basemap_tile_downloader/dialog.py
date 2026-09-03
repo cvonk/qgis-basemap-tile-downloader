@@ -214,6 +214,10 @@ class BasemapTileDialog(QDialog):
         self.extent_widget.extentChanged.connect(self._show_extent_source)
         if hasattr(self.extent_widget, "extentLayerChanged"):
             self.extent_widget.extentLayerChanged.connect(self._show_extent_source)
+        # "Calculate from Layer" otherwise lists every project layer. Only a
+        # vector one is ever the answer here — see _vector_only_extent_menu.
+        for _menu in self.extent_widget.findChildren(QMenu):
+            _menu.aboutToShow.connect(self._vector_only_extent_menu)
         self.extent_widget.setToolTip(
             "The area to download/export, like QGIS's Convert Map to Raster "
             "dialog: pick 'Calculate from Layer' (a layer's bounding box), "
@@ -1077,6 +1081,33 @@ class BasemapTileDialog(QDialog):
         v = self.values()
         return engine.has_resumable_cache(v["layer"], v["extent"], v["extent_crs"],
                                           v["opts"], v["output_path"], v["temporary"])
+
+    def _vector_only_extent_menu(self):
+        """Drop non-vector layers from the extent widget's "Calculate from Layer"
+        menu, leaving only the AOI polygons and route lines the extent is ever
+        taken from.
+
+        The rasters in that list are never the answer: the one being downloaded
+        is the Source layer above, and for a tile service its own extent is the
+        whole world. QgsExtentWidget exposes no filter, and its layer model is a
+        private child that sip hands back as a bare QAbstractItemModel, so
+        setFilters() is out of reach. The menu is rebuilt from that model on
+        every aboutToShow, though, so prune it there — connected after the
+        widget's own handler, this runs on the freshly built list.
+
+        Entries are matched BY NAME; the layer id lives only in the C++ lambda
+        behind each action. Names that match no layer at all are left alone, so
+        the sibling Layout Map and Bookmark menus pass through untouched, and a
+        name shared by a vector and a raster is kept rather than lose the
+        vector with it."""
+        proj = QgsProject.instance()
+        for menu in self.extent_widget.findChildren(QMenu):
+            for act in list(menu.actions()):
+                if act.menu() is not None or not act.text():
+                    continue                    # submenu or separator
+                layers = proj.mapLayersByName(act.text())
+                if layers and not any(isinstance(lyr, QgsVectorLayer) for lyr in layers):
+                    menu.removeAction(act)
 
     def _show_extent_source(self, *_):
         """With 'Calculate from Layer', show the layer's NAME in the condensed

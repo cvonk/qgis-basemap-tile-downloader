@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-Austria BEV ALS DGM/DOM AOI → DTM GeoTIFF — a QGIS Processing algorithm.
+Austria BEV ALS DGM/DOM AOI → GeoTIFF — a QGIS Processing algorithm.
 
 Builds a terrain (DGM) or surface (DOM) GeoTIFF for a chosen extent from BEV's
 nationwide open ALS/LiDAR 1 m height rasters — so it covers all of Austria,
@@ -136,7 +136,7 @@ class AustriaBevDgmAoi(QgsProcessingAlgorithm):
         # The trailing (native resolution, native CRS) is what you are actually
         # sampling — the Output CRS / Resolution parameters only say what it is
         # resampled to, so the source grid belongs in the name.
-        return "Austria BEV ALS DGM/DOM → DTM GeoTIFF (AOI) (1m 3035)"
+        return "Austria BEV ALS DGM/DOM → GeoTIFF (AOI) (1m 3035)"
 
     def group(self):
         return "Austria"
