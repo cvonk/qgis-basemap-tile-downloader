@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-Tyrol ALS DGM/DOM AOI → DTM GeoTIFF — a QGIS Processing algorithm.
+Tyrol ALS DGM/DOM AOI → GeoTIFF — a QGIS Processing algorithm.
 
 Builds a terrain (DGM) or surface (DOM) GeoTIFF for a chosen extent from Tyrol's
 open ALS/LiDAR tiles (tiris), without a manual tile download. It queries the
@@ -133,7 +133,7 @@ class TyrolDgmAoi(QgsProcessingAlgorithm):
         return "tyrol_dgm_aoi"
 
     def displayName(self):
-        return "Tyrol ALS DGM/DOM → DTM GeoTIFF (AOI) (0.5m 31254/31255)"
+        return "Tyrol ALS DGM/DOM → GeoTIFF (AOI) (0.5m 31254/31255)"
 
     def group(self):
         return "Austria"
