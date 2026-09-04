@@ -99,11 +99,13 @@ class GpxRouteToBlenderShp(QgsProcessingAlgorithm):
         self.addParameter(QgsProcessingParameterCrs(
             self.TARGET, "Target CRS (leave empty to take the raster's)",
             optional=True))
-        p = QgsProcessingParameterDistance(
+        # Parent the distance to the RASTER, not to the CRS parameter: the CRS one
+        # is optional and normally left empty, and an empty parent leaves the unit
+        # label reading "<unknown>". Parenting to a raster layer is what QGIS's own
+        # gdal:viewshed does.
+        self.addParameter(QgsProcessingParameterDistance(
             self.INTERVAL, "Densify interval (0 = the raster's pixel size)",
-            defaultValue=0.0, minValue=0.0)
-        p.setParentParameterName(self.TARGET)
-        self.addParameter(p)
+            parentParameterName=self.DTM, defaultValue=0.0, minValue=0.0))
         self.addParameter(QgsProcessingParameterNumber(
             self.OFFSET, "Offset above the terrain (m)",
             QgsProcessingParameterNumber.Double, defaultValue=DEFAULT_OFFSET))
