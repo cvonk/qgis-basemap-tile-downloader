@@ -74,7 +74,10 @@ class GpxRouteToBlenderShp(QgsProcessingAlgorithm):
         return "Blender"
 
     def groupId(self):
-        return "Blender"
+        # Lowercase, and it must match osm_features_to_blender_csv.py exactly: the
+        # Toolbox groups by ID, not by the displayed group(), so "Blender" here and
+        # "blender" there produced TWO folders both captioned "Blender".
+        return "blender"
 
     def shortHelpString(self):
         return self.tr(
